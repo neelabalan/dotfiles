@@ -1,0 +1,21 @@
+#!/bin/bash
+arg=$(echo -e "Focus
+Work
+Sports
+Sleep
+" | fzf )
+
+case $arg in 
+	"Focus")
+		mpv http://78.47.117.214:8111/deep_focus
+	;;
+	"Work")
+		mpv http://78.47.117.214:8111/work_for_the_future
+	;;
+	"Sports")
+		mpv http://78.47.117.214:8111/strength
+	;;
+	"Sleep")
+		mpv http://78.47.117.214:8111/sleeping_soundscapes
+	;;
+esac

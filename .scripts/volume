@@ -1,0 +1,18 @@
+#!/bin/bash
+
+upvol='+5%'
+downvol='-5%'
+args='$1'
+up='up'
+
+for SINK in `pacmd list-sinks | grep 'index:' | cut -b12-`
+if [[ "$args" == "$up" ]]; then
+	do
+		pactl set-sink-volume $SINK $upvol
+	done
+else
+	do 
+		pactl set-sink-volume $SINK $downvol
+	done
+fi
+

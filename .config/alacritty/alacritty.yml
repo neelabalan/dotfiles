@@ -1,0 +1,39 @@
+font:
+  size: 11.0
+window.dynamic_title: true
+key_bindings:
+  - {key: Key1,     mods: command, chars: "`"} 
+  - {key: Key2,     mods: command, chars: "~"}
+
+colors:
+  # Default colors
+  primary:
+    background: '#000000'
+    foreground: '#d4d4d4'
+
+  # Colors the cursor will use if `custom_cursor_colors` is true
+  cursor:
+    text: '#000000'
+    cursor: '#ffffff'
+
+  # Normal colors
+  normal:
+    black:   '#1d1f21'
+    red:     '#ad0000'
+    green:   '#83a300'
+    yellow:  '#e6c547'
+    blue:    '#81a2be'
+    magenta: '#b294bb'
+    cyan:    '#70c0ba'
+    white:   '#a2a2a2'
+
+  # Bright colors
+  bright:
+    black:   '#666666'
+    red:     '#c70000'
+    green:   '#9ec400'
+    yellow:  '#f0c674'
+    blue:    '#81a2be'
+    magenta: '#b77ee0'
+    cyan:    '#54ced6'
+    white:   '#d4d4d4'
