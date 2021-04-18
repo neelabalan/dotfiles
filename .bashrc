@@ -2,12 +2,14 @@
 export PATH=$PATH:~/.scripts/
 export PATH=$PATH:~/.local/bin/
 export PATH=$PATH:~/.poetry/bin/
+#export PYTHONPATH=$HOME/.local/lib/python3.8/site-packages/
 export CHEATCOLORS=true
 export LIBVA_DRIVER_NAME=i965
 bind '"\e[A": history-search-backward'
 bind '"\e[B": history-search-forward'
 bind '"\e[C": forward-char'
 bind '"\e[D": backward-char'
+#python3 $HOME/stoic-quote/stoic_quote.py 
 
 complete -d cd
 bind TAB:menu-complete
@@ -128,6 +130,7 @@ export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_
 export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
+alias cls='clear'
 alias dotsync='rsync -avzPR $(cat .dotlist) $HOME/.dotfiles/'
 alias pdf='ranger ~/pdf'
 alias clk='tty-clock -s -c -C 4 -t -f %d-%m-%Y'

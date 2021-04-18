@@ -4,6 +4,9 @@ docker -d
 # To start a container with an interactive shell:
 docker run -ti <image-name> /bin/bash
 
+# adding new command
+docker container ls
+
 # To "shell" into a running container (docker-1.3+):
 docker exec -ti <container-name> bash
 

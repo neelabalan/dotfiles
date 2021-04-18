@@ -49,7 +49,7 @@ Plug 'plasticboy/vim-markdown'
 Plug 'gabrielelana/vim-markdown'
 Plug 'dhruvasagar/vim-table-mode'
 Plug 'sheerun/vim-polyglot'
-Plug 'itchyny/lightline.vim'
+Plug 'neelabalan/lightline.vim'
 
 call plug#end()
 
@@ -75,11 +75,13 @@ set smarttab
 autocmd FileType python set ts=4
 
 
+
 set undodir=~/.vimdid
 set undofile
 " related to vim lightline settings
 set laststatus=2
 set noshowmode
+
 let g:ycm_python_binary_path = 'python3'
 let g:ycm_autoclose_preview_window_after_completion=1
 let g:ycm_show_diagnostics_ui = 0
@@ -89,7 +91,7 @@ let g:ycm_enable_diagnostic_highlighting = 0
 "let g:indentLine_setColors = 0
 let g:indentLine_color_term=239
 let g:indentLine_bgcolor_term = 16
-let g:indentLine_char_list = ['|', '¦']
+let g:indentLine_char_list = ['|']
 
 " tab color
 "highlight TabLineFill ctermfg=254 ctermbg=238 cterm=none
@@ -97,7 +99,7 @@ let g:indentLine_char_list = ['|', '¦']
 "highlight TabLineSel ctermfg=Red ctermbg=Yellow
 
 "status line
-let g:lightline = { 'colorscheme':'srcery_drk'}
+let g:lightline = { 'colorscheme':'subtle'}
 
 filetype indent on
 nnoremap <C-J> <C-W><C-J>
@@ -135,12 +137,14 @@ nnoremap <silent> <Leader><Enter> :call fzf#run({
 
 set colorcolumn=80
 au BufNewFile,BufFilePre,BufRead *.md set filetype=markdown
+
 iab xdate <c-r>=strftime("%d-%m-%y %X")<cr>
 """"""""""""""""""""""""""""""""""""""""""""""
 augroup markdown
     au!
     au BufNewFile,BufRead *.md,*.markdown setlocal filetype=markdown
 	autocmd BufNewFile,BufRead,BufWrite *.md syn clear mkdLineBreak
+    au FileType markdown setlocal ts=4 sw=4 noet
 	"autocmd :syn clear mkdLineBreak
 augroup END
 
