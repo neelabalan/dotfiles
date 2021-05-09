@@ -196,7 +196,7 @@ nn()
         note_name="$note_name.$note_ext"
     fi
     mkdir -p $NOTESDIR
-    vim "$NOTESDIR/$note_name"
+    vim "$NOTESDIR/logs/$note_name"
 }
 
 ns() 

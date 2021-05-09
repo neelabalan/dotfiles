@@ -50,6 +50,8 @@ Plug 'gabrielelana/vim-markdown'
 Plug 'dhruvasagar/vim-table-mode'
 Plug 'sheerun/vim-polyglot'
 Plug 'neelabalan/lightline.vim'
+Plug 'vitalk/vim-simple-todo'
+
 
 call plug#end()
 
@@ -94,9 +96,9 @@ let g:indentLine_bgcolor_term = 16
 let g:indentLine_char_list = ['|']
 
 " tab color
-"highlight TabLineFill ctermfg=254 ctermbg=238 cterm=none
-"highlight TabLine ctermfg=254 ctermbg=235 cterm=none
-"highlight TabLineSel ctermfg=Red ctermbg=Yellow
+highlight TabLineFill ctermfg=254 ctermbg=238 cterm=none
+highlight TabLine ctermfg=254 ctermbg=235 cterm=none
+highlight TabLineSel ctermfg=Red ctermbg=Yellow
 
 "status line
 let g:lightline = { 'colorscheme':'subtle'}
