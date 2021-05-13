@@ -15,7 +15,7 @@ set $mod Mod1
 # i3 compton config
 #exec --no-startup-id compton --config ~/.config/compton.conf -b
 # set wallpaper
-#exec --no-startup-id xsetroot -solid "#000000"
+exec --no-startup-id xsetroot -solid "#000000"
 exec --no-startup-id feh --bg-scale ~/.scripts/wallpaper.jpg
 # setting background wallpaper
 # xsetroot -solid "#000000"

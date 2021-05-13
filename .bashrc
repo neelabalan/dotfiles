@@ -131,7 +131,7 @@ export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quo
 
 # some more ls aliases
 alias cls='clear'
-alias dotsync='rsync -avzPR $(cat .dotlist) $HOME/.dotfiles/'
+alias dotsync='rsync -avzPR $(cat $HOME/.dotfiles/.dotlist) $HOME/.dotfiles/'
 alias pdf='ranger ~/pdf'
 alias clk='tty-clock -s -c -C 4 -t -f %d-%m-%Y'
 alias man='man "$1" | vim -'
@@ -259,3 +259,4 @@ title()
 #upower -i /org/freedesktop/UPower/devices/battery_BAT0
 
 
+. "$HOME/.cargo/env"
