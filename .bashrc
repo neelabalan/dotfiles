@@ -130,6 +130,9 @@ export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_
 export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
+alias python='python3'
+alias randname='python3 ~/.scripts/namesgenerator.py'
+alias py='python3'
 alias cls='clear'
 alias dotsync='rsync -avzPR $(cat $HOME/.dotfiles/.dotlist) $HOME/.dotfiles/'
 alias pdf='ranger ~/pdf'
