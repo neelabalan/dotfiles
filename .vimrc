@@ -27,6 +27,7 @@ set clipboard=unnamedplus
 
 let g:system_copy#copy_command='xclip -sel clipboard'
 
+
 inoremap <c-n> <Esc>
 
 "iab { {<CR>}<Esc>ko
@@ -45,17 +46,15 @@ Plug 'preservim/nerdtree', { 'on':  'NERDTreeToggle' }
 Plug 'junegunn/vim-easy-align'
 Plug 'Yggdroot/indentLine'
 Plug 'preservim/nerdcommenter'
-Plug 'plasticboy/vim-markdown'
-Plug 'gabrielelana/vim-markdown'
 Plug 'dhruvasagar/vim-table-mode'
 Plug 'sheerun/vim-polyglot'
 Plug 'neelabalan/lightline.vim'
 Plug 'vitalk/vim-simple-todo'
 
-
 call plug#end()
 
 filetype plugin indent on
+set conceallevel=0
 set lazyredraw
 set smartcase
 set smartindent
@@ -137,23 +136,15 @@ nnoremap <silent> <Leader><Enter> :call fzf#run({
 \ })<CR>
 
 
-set colorcolumn=80
-au BufNewFile,BufFilePre,BufRead *.md set filetype=markdown
+set colorcolumn=100
 
 iab xdate <c-r>=strftime("%d-%m-%y %X")<cr>
 """"""""""""""""""""""""""""""""""""""""""""""
 augroup markdown
     au!
     au BufNewFile,BufRead *.md,*.markdown setlocal filetype=markdown
-	autocmd BufNewFile,BufRead,BufWrite *.md syn clear mkdLineBreak
     au FileType markdown setlocal ts=4 sw=4 noet
-	"autocmd :syn clear mkdLineBreak
 augroup END
-
-" disabled folding in plastic boy markdown
-let g:vim_markdown_folding_disabled=1
-let g:vim_markdown_conceal=0
-let g:vim_markdown_conceal_code_blocks=0
 
 
 """"""""""""""""""""""""""""""""""""""""""""""
