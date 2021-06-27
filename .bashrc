@@ -188,6 +188,8 @@ complete -o default -F _pip_completion pip
 # 				commented code
 
 export NOTESDIR="$HOME/notes"
+
+
 nn() 
 {
     local note_name="$*"

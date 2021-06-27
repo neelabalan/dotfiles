@@ -14,6 +14,7 @@ set rtp+=~/.fzf
 let g:NERDTreeDirArrowExpandable = '+'
 let g:NERDTreeDirArrowCollapsible = '-'
 let NERDTreeHighlightCursorline=0
+let g:indentLine_conceallevel=0
 nmap <F2> :NERDTreeToggle<CR>
 
 " Start interactive EasyAlign in visual mode (e.g. vipga)
@@ -39,7 +40,6 @@ inoremap <c-n> <Esc>
 call plug#begin('~/.vim/plugged')
 "installing plugins
 "
-Plug 'neelabalan/vim-code-dark'
 Plug 'christoomey/vim-system-copy'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'preservim/nerdtree', { 'on':  'NERDTreeToggle' }
@@ -47,14 +47,14 @@ Plug 'junegunn/vim-easy-align'
 Plug 'Yggdroot/indentLine'
 Plug 'preservim/nerdcommenter'
 Plug 'dhruvasagar/vim-table-mode'
-Plug 'sheerun/vim-polyglot'
+Plug 'neelabalan/vim-code-dark'
+Plug 'neelabalan/vim-polyglot'
 Plug 'neelabalan/lightline.vim'
 Plug 'vitalk/vim-simple-todo'
 
 call plug#end()
 
 filetype plugin indent on
-set conceallevel=0
 set lazyredraw
 set smartcase
 set smartindent
