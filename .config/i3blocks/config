@@ -3,11 +3,6 @@
 command=date 
 interval=5
 
-[caps-lock]
-command=xset -q | grep Caps | awk '{ print $2, $3, $4 }'
-interval=once
-signal=10
-
 [wifi]
 instance=wlp0s20f3
 interval=1
