@@ -45,11 +45,6 @@ font pango:DejaVu Sans Mono 11
 # Use Mouse+$mod to drag floating windows to their wanted position
 floating_modifier $mod
 
-for_window [class="xpad"] floating enable
-for_window [window_role="pop-up"] floating enable,move absolute center
-
-set $ws2 "1"
-for_window [workspace=$ws2] floating enable
 
 # start a terminal
 bindsym $mod+Return exec alacritty
