@@ -114,7 +114,7 @@ txtrst='\e[0m'    # Text Reset - Useful for avoiding color bleed
 
 #__ps1_startline="\[$txtblu\]\u\[$txtcyn\]@\[$txtblu\]\h\[$txtwht\]__:\[$txtgrn\]\w \[$txtrst\]"
 __ps1_startline="\[$txtgrn\]\w \[$txtrst\]"
-__ps1_endline="\[$txtpur\]\[$txtred\] >> \[$txtrst\]"
+__ps1_endline="\[$txtpur\]  \[$txtrst\]"
 export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_endline}"
 
 
