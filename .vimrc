@@ -139,6 +139,7 @@ nnoremap <silent> <Leader><Enter> :call fzf#run({
 set colorcolumn=100
 
 iab xdate <c-r>=strftime("%d-%m-%y %X")<cr>
+iab xxdate <c-r>=strftime("%a, %d %b %Y")<cr>
 """"""""""""""""""""""""""""""""""""""""""""""
 augroup markdown
     au!

@@ -13,9 +13,6 @@ bind '"\e[D": backward-char'
 
 complete -d cd
 bind TAB:menu-complete
-#if [ -f ~/lin_scripts/autocomplete/s-completion.bash ]; then
-    #. ~/lin_scripts/autocomplete/s-completion.bash
-#fi
 
 VISUAL=vim; export VISUAL EDITOR=vim; export EDITOR
 HISTCONTROL=ignoreboth
@@ -54,9 +51,6 @@ case "$TERM" in
 esac
 
 force_color_prompt=yes
-
-#. ~/lin_scripts/git-prompt.sh
-#export GIT_PS1_SHOWDIRTYSTATE=1
 
 __git_status() 
 {
@@ -161,9 +155,7 @@ vman()
 alias man='vman'
 
 
-# enable programmable completion features (you don't need to enable
-# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
-# sources /etc/bash.bashrc).
+
 if ! shopt -oq posix; then
   if [ -f /usr/share/bash-completion/bash_completion ]; then
     . /usr/share/bash-completion/bash_completion
@@ -230,13 +222,6 @@ md()
                   -o -type d -print 2> /dev/null | fzf +m) &&
     cd "$dir"
 }
-
-book() 
-{
-    vim ~/bookmark/bookmarks.md
-}
-
-
 
 printcolor ()
 {
