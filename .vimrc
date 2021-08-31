@@ -40,6 +40,7 @@ inoremap <c-n> <Esc>
 call plug#begin('~/.vim/plugged')
 "installing plugins
 "
+Plug 'pechorin/any-jump.vim'
 Plug 'christoomey/vim-system-copy'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'preservim/nerdtree', { 'on':  'NERDTreeToggle' }

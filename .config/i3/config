@@ -46,10 +46,13 @@ font pango:DejaVu Sans Mono 11
 floating_modifier $mod
 
 for_window [class="xpad"] floating enable
-for_window [window_role="pop-up"] floating enable,move absolute center
+for_window [window_role="pop-up"] floating enable, move absolute center
 
-set $ws2 "1"
-for_window [workspace=$ws2] floating enable
+set $ws1 "1"
+set $ws2 "2"
+for_window [workspace=$ws1] floating enable, move position 1400px 1400px 
+for_window [workspace=$ws2] floating enable, move position 1400px 1400px 
+
 
 # start a terminal
 bindsym $mod+Return exec alacritty

@@ -114,7 +114,7 @@ txtrst='\e[0m'    # Text Reset - Useful for avoiding color bleed
 
 #__ps1_startline="\[$txtblu\]\u\[$txtcyn\]@\[$txtblu\]\h\[$txtwht\]__:\[$txtgrn\]\w \[$txtrst\]"
 __ps1_startline="\[$txtgrn\]\w \[$txtrst\]"
-__ps1_endline="\[$txtpur\]  \[$txtrst\]"
+__ps1_endline="\[$txtylw\]→ \[$txtrst\]"
 export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_endline}"
 
 
@@ -181,6 +181,13 @@ complete -o default -F _pip_completion pip
 
 export NOTESDIR="$HOME/notes"
 
+# opencode
+oc()
+{
+    reponame=$(echo $1 | cut -d'/' -f 2 | cut -d'.' -f 1)
+    git clone $1 /tmp/$reponame
+    code /tmp/$reponame
+}
 
 nn() 
 {

@@ -1,5 +1,7 @@
 font:
-  size: 11.0
+  size: 13.0
+  normal:
+    family: 'Monospace'
 window.dynamic_title: true
 key_bindings:
   - {key: Key1,     mods: command, chars: "`"} 
