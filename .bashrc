@@ -130,7 +130,7 @@ alias py='python3'
 alias cls='clear'
 alias dotsync='rsync -avzPR $(cat $HOME/.dotfiles/.dotlist) $HOME/.dotfiles/'
 alias pdf='ranger ~/pdf'
-alias clk='tty-clock -s -c -C 4 -t -f %d-%m-%Y'
+alias clk='alacritty --option font.size=20.0 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y'
 alias man='man "$1" | vim -'
 alias r='ranger'
 alias hs='ghci'
@@ -181,6 +181,10 @@ complete -o default -F _pip_completion pip
 
 export NOTESDIR="$HOME/notes"
 
+prvu()
+{
+    fzf --preview 'batcat --theme ansi-dark --color "always" {}' $1
+}
 # opencode
 oc()
 {
@@ -207,7 +211,7 @@ ns()
 {
     local file
     [ -z "$1" ] && echo "No argument supplied - Enter a term to search" && return 1
-    file="$(rg --files-with-matches --no-ignore --ignore-case --hidden --no-heading --no-messages $1 $NOTESDIR | fzf --preview 'batcat --theme TwoDark --color "always" {}')"
+    file="$(rg --files-with-matches --no-ignore --ignore-case --hidden --no-heading --no-messages $1 $NOTESDIR | fzf --preview 'batcat --theme ansi-dark --color "always" {}')"
     if [[ -n $file ]]; then
         vim $file
     fi
@@ -216,7 +220,7 @@ ns()
 nl() 
 {
     local files
-    files="$(rg --files $NOTESDIR | fzf --preview 'batcat --theme TwoDark --color "always" {}')"
+    files="$(rg --files $NOTESDIR | fzf --preview 'batcat --theme ansi-dark --color "always" {}')"
     if [[ -n $files ]]; then
         vim $files
     fi

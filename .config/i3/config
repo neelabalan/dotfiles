@@ -50,12 +50,15 @@ for_window [window_role="pop-up"] floating enable, move absolute center
 
 set $ws1 "1"
 set $ws2 "2"
-for_window [workspace=$ws1] floating enable, move position 1400px 1400px 
-for_window [workspace=$ws2] floating enable, move position 1400px 1400px 
+for_window [workspace=$ws1] floating enable
+for_window [workspace=$ws2] floating enable
+#for_window [workspace=$ws1] floating enable, move position 1400px 1400px 
+#for_window [workspace=$ws2] floating enable, move position 1400px 1400px 
 
 
 # start a terminal
-bindsym $mod+Return exec alacritty
+bindsym $mod+Return exec tdrop -w 40% -h 30% -y 1000 -x 1200 ~/.local/kitty.app/bin/kitty 
+bindsym $mod+Shift+Return exec tdrop -w 40% -h 30% -y 1500 -x 1200 alacritty
 
 # kill focused window
 bindsym $mod+Shift+q kill
