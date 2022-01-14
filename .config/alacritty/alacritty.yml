@@ -10,7 +10,7 @@ key_bindings:
 colors:
   # Default colors
   primary:
-    background: '#000000'
+    background: '#000b1c'
     foreground: '#d4d4d4'
 
   # Colors the cursor will use if `custom_cursor_colors` is true
@@ -18,7 +18,7 @@ colors:
     text: '#000000'
     cursor: '#ffffff'
 
-  # Normal colors
+   #Normal colors
   normal:
     black:   '#1d1f21'
     red:     '#ad0000'
@@ -29,7 +29,7 @@ colors:
     cyan:    '#70c0ba'
     white:   '#a2a2a2'
 
-  # Bright colors
+   #Bright colors
   bright:
     black:   '#666666'
     red:     '#c70000'

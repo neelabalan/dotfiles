@@ -22,7 +22,7 @@ shopt -s histappend
 
 # for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
 HISTSIZE=10000
-HISTFILESIZE=2000
+HISTFILESIZE=5000
 
 if [ -d ~/.bash_completion.d ]; then
   for file in ~/.bash_completion.d/*; do
@@ -124,14 +124,16 @@ export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_
 export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
-alias zone='python3 ~/.scripts/zone.py'
 alias python='python3'
+#alias tmt='python3 ~/code/github/tmt/tmt.py'
+alias quo='python3 ~/code/github/quote/quote.py'
 alias randname='python3 ~/.scripts/namesgenerator.py'
+alias zone='python3 ~/.dotfiles/.scripts/zone.py'
 alias py='python3'
 alias cls='clear'
 alias dotsync='rsync -avzPR $(cat $HOME/.dotfiles/.dotlist) $HOME/.dotfiles/'
 alias pdf='ranger ~/pdf'
-alias clk='alacritty --option font.size=20.0 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y'
+alias clk='kitty -o font_size=20 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y &'
 alias man='man "$1" | vim -'
 alias r='ranger'
 alias hs='ghci'
@@ -262,3 +264,13 @@ title()
 
 
 . "$HOME/.cargo/env"
+
+
+
+source /home/blue/.bash_completions/qn.sh
+
+source /home/blue/.bash_completions/tmt.py.sh
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion

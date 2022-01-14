@@ -30,7 +30,7 @@ exec --no-startup-id feh --bg-scale ~/.scripts/wallpaper.jpg
 
 # Font for window titles. Will also be used by the bar unless a different font
 # is used in the bar {} block below.
-font pango:DejaVu Sans Mono 11
+font pango:DejaVu Sans Mono 12
 # This font is widely installed, provides lots of unicode glyphs, right-to-left
 # text rendering and scalability on retina/hidpi displays (thanks to pango).
 #font pango:DejaVu Sans Mono 8
@@ -48,16 +48,17 @@ floating_modifier $mod
 for_window [class="xpad"] floating enable
 for_window [window_role="pop-up"] floating enable, move absolute center
 
-set $ws1 "1"
-set $ws2 "2"
-for_window [workspace=$ws1] floating enable
-for_window [workspace=$ws2] floating enable
+#set $ws1 "1"
+#set $ws2 "2"
+#for_window [workspace=$ws1] floating enable
+#for_window [workspace=$ws2] floating enable
 #for_window [workspace=$ws1] floating enable, move position 1400px 1400px 
 #for_window [workspace=$ws2] floating enable, move position 1400px 1400px 
 
 
 # start a terminal
-bindsym $mod+Return exec tdrop -w 40% -h 30% -y 1000 -x 1200 ~/.local/kitty.app/bin/kitty 
+#bindsym $mod+Return exec tdrop -w 40% -h 30% -y 1400 -x 1200 ~/.local/kitty.app/bin/kitty 
+bindsym $mod+Return exec ~/.local/kitty.app/bin/kitty 
 bindsym $mod+Shift+Return exec tdrop -w 40% -h 30% -y 1500 -x 1200 alacritty
 
 # kill focused window
@@ -72,6 +73,7 @@ bindsym $mod+Shift+n exec i3-msg move container to workspace $( ~/.scripts/lsws.
 
 bindsym $mod+u exec --no-startup-id rofi -show run
 bindsym $mod+i exec --no-startup-id rofi -show window
+bindsym $mod+d exec --no-startup-id rofi -show drun 
 # There also is the (new) i3-dmenu-desktop which only displays applications
 # shipping a .desktop file. It is a wrapper around dmenu, so you need that
 # installed.
@@ -125,7 +127,7 @@ bindsym $mod+space focus mode_toggle
 bindsym $mod+a focus parent
 
 # focus the child container
-bindsym $mod+d focus child
+# bindsym $mod+d focus child
 # switch to workspace
 
 bindsym $mod+1 workspace number 1
@@ -266,5 +268,5 @@ bar {
     tray_output primary
     position top
     font -misc-fixed-medium-r-normal--13-120-75-75-C-70-iso10646-1
-    font pango:DejaVu Sans Mono 11
+    font pango:DejaVu Sans Mono 12
 }

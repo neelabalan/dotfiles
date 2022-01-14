@@ -40,6 +40,7 @@ inoremap <c-n> <Esc>
 call plug#begin('~/.vim/plugged')
 "installing plugins
 "
+"
 Plug 'pechorin/any-jump.vim'
 Plug 'christoomey/vim-system-copy'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
@@ -52,6 +53,7 @@ Plug 'neelabalan/vim-code-dark'
 Plug 'neelabalan/vim-polyglot'
 Plug 'neelabalan/lightline.vim'
 Plug 'vitalk/vim-simple-todo'
+
 
 call plug#end()
 
@@ -73,6 +75,7 @@ set expandtab
 set shellslash
 set clipboard=unnamed
 set smarttab
+set incsearch
 
 autocmd FileType python set ts=4
 
@@ -174,4 +177,25 @@ if !has("gui_running")
 	colorscheme codedark
 "    colorscheme myblack
 endif
+
+function! ToggleFocusMode()
+  if (&laststatus != 0)
+    set laststatus=0
+    set nonumber
+    set noruler
+    highlight EndOfBuffer ctermfg=black ctermfg=black
+    "hi FoldColumn ctermbg=none
+    "hi LineNr ctermfg=0 ctermbg=none
+  else
+    set laststatus=2
+    set number
+    set foldcolumn=0
+    set ruler
+    "highlight EndOfBuffer ctermfg=black ctermfg=black
+    "hi Nontext ctermfg=244
+    execute 'colorscheme ' . g:colors_name
+  endif
+endfunc
+nnoremap <F1> :call ToggleFocusMode()<cr>
+
 "call feedkeys('<C-[>')
