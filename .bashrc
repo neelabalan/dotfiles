@@ -114,8 +114,10 @@ txtrst='\e[0m'    # Text Reset - Useful for avoiding color bleed
 
 #__ps1_startline="\[$txtblu\]\u\[$txtcyn\]@\[$txtblu\]\h\[$txtwht\]__:\[$txtgrn\]\w \[$txtrst\]"
 __ps1_startline="\[$txtgrn\]\w \[$txtrst\]"
-__ps1_endline="\[$txtylw\]→ \[$txtrst\]"
-export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_endline}"
+#__ps1_endline="\[$txtylw\]⯈ \[$txtrst\]"
+#__ps1_endline="\[$txtylw\]🡢→ \[$txtrst\]"
+export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n"
+
 
 
 
@@ -124,13 +126,13 @@ export PS1="\n\n${__ps1_startline} \$(__git_status)\$(git_stash_size)\n ${__ps1_
 export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
+alias cls='printf "\033[2J\033[H\033[3J"'
 alias python='python3'
 #alias tmt='python3 ~/code/github/tmt/tmt.py'
 alias quo='python3 ~/code/github/quote/quote.py'
 alias randname='python3 ~/.scripts/namesgenerator.py'
 alias zone='python3 ~/.dotfiles/.scripts/zone.py'
 alias py='python3'
-alias cls='clear'
 alias dotsync='rsync -avzPR $(cat $HOME/.dotfiles/.dotlist) $HOME/.dotfiles/'
 alias pdf='ranger ~/pdf'
 alias clk='kitty -o font_size=20 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y &'
