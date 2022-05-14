@@ -9,6 +9,7 @@
 .vim/auto-pairs-master
 .vim/autoload
 .vim/colors
+.config/starship.toml
 .config/mpv
 .config/zathura
 .config/alacritty

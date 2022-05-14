@@ -53,6 +53,8 @@ Plug 'neelabalan/vim-code-dark'
 Plug 'neelabalan/vim-polyglot'
 Plug 'neelabalan/lightline.vim'
 Plug 'vitalk/vim-simple-todo'
+Plug 'iamcco/markdown-preview.nvim', { 'do': { -> mkdp#util#install() }, 'for': ['markdown', 'vim-plug']}
+
 
 
 call plug#end()
@@ -102,6 +104,9 @@ let g:indentLine_char_list = ['|']
 highlight TabLineFill ctermfg=254 ctermbg=238 cterm=none
 highlight TabLine ctermfg=254 ctermbg=235 cterm=none
 highlight TabLineSel ctermfg=Red ctermbg=Yellow
+
+let g:mkdp_highlight_css = expand('~/.vim/highlight.css')
+
 
 "status line
 let g:lightline = { 'colorscheme':'subtle'}
