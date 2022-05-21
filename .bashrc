@@ -4,7 +4,7 @@ eval "$(starship init bash)"
 set -o vi
 
 set show-mode-in-prompt on
-#set vi-ins-mode-string \1\e[34;1m\2 ⯈ \1\e[0m\2
+
 set editing-mode vi
 bldylw='\e[1;33m'
 txtrst='\e[0m'

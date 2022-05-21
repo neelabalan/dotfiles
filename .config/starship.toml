@@ -11,4 +11,4 @@ error_symbol = ""
 
 [directory]
 style = "bold green"
-
+truncate_to_repo = false
