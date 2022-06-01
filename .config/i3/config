@@ -13,7 +13,8 @@
 set $mod Mod1
 
 # i3 compton config
-#exec --no-startup-id compton --config ~/.config/compton.conf -b
+#exec --no-startup-id compton --config ~/.config/i3/compton.conf -b
+#
 # set wallpaper
 exec --no-startup-id xsetroot -solid "#000000"
 exec --no-startup-id feh --bg-scale ~/.scripts/wallpaper.jpg
@@ -21,7 +22,8 @@ exec --no-startup-id feh --bg-scale ~/.scripts/wallpaper.jpg
 # xsetroot -solid "#000000"
 
 # smoothing out
-#exec --no-startup-id compton -CGb --vsync opengl
+# # basic configuration
+#exec --no-startup-id compton -b --backend glx --vsync opengl-swc
 
 
 # udiskie mounting

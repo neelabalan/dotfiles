@@ -1,4 +1,3 @@
-"execute pathogen#infect()
 syntax on
 filetype plugin on
 set title
@@ -31,12 +30,6 @@ let g:system_copy#copy_command='xclip -sel clipboard'
 
 inoremap <c-n> <Esc>
 
-"iab { {<CR>}<Esc>ko
-"inoremap ( ()<Left>
-"inoremap [ []<Left>
-"inoremap " ""<Left>
-"inoremap ' ''<Left>
-
 call plug#begin('~/.vim/plugged')
 "installing plugins
 "
@@ -54,7 +47,12 @@ Plug 'neelabalan/vim-polyglot'
 Plug 'neelabalan/lightline.vim'
 Plug 'vitalk/vim-simple-todo'
 Plug 'iamcco/markdown-preview.nvim', { 'do': { -> mkdp#util#install() }, 'for': ['markdown', 'vim-plug']}
+Plug 'rust-lang/rust.vim'
+Plug 'neoclide/coc.nvim', {'branch': 'release'}
 
+let g:rustfmt_autosave = 1
+let g:rustfmt_emit_files = 1
+let g:rustfmt_fail_silently = 0
 
 
 call plug#end()
@@ -78,16 +76,16 @@ set shellslash
 set clipboard=unnamed
 set smarttab
 set incsearch
-
-autocmd FileType python set ts=4
-
-
-
 set undodir=~/.vimdid
 set undofile
 " related to vim lightline settings
 set laststatus=2
 set noshowmode
+
+
+autocmd FileType python set ts=4
+
+
 
 let g:ycm_python_binary_path = 'python3'
 let g:ycm_autoclose_preview_window_after_completion=1
@@ -112,20 +110,15 @@ let g:mkdp_highlight_css = expand('~/.vim/highlight.css')
 let g:lightline = { 'colorscheme':'subtle'}
 
 filetype indent on
-nnoremap <C-J> <C-W><C-J>
-nnoremap <C-K> <C-W><C-K>
-nnoremap <C-L> <C-W><C-L>
-nnoremap <C-H> <C-W><C-H>
+nnoremap J <C-W><C-J>
+nnoremap K <C-W><C-K>
+nnoremap L <C-W><C-L>
+nnoremap H <C-W><C-H>
 
-nnoremap H :tabprevious<CR>
-nnoremap L :tabnext<CR>
+nnoremap ( :tabprevious<CR>
+nnoremap ) :tabnext<CR>
 nnoremap <C-f> :FZF<CR>
-nnoremap <C-g> :Rg<CR>
-nnoremap <C-b> :Buffers<CR>
-"imap ^[OA <ESC>ki
-"imap ^[OB <ESC>ji
-"imap ^[OC <ESC>li
-"imap ^[OD <ESC>hi
+
 
 function! s:buflist()
   redir => ls
@@ -137,15 +130,8 @@ endfunction
 function! s:bufopen(e)
   execute 'buffer' matchstr(a:e, '^[ 0-9]*')
 endfunction
-nnoremap <silent> <Leader><Enter> :call fzf#run({
-\   'source':  reverse(<sid>buflist()),
-\   'sink':    function('<sid>bufopen'),
-\   'options': '+m',
-\   'down':    len(<sid>buflist()) + 2
-\ })<CR>
 
-
-set colorcolumn=100
+"set colorcolumn=100
 
 iab xdate <c-r>=strftime("%d-%m-%y %X")<cr>
 iab xxdate <c-r>=strftime("%a, %d %b %Y")<cr>
@@ -155,6 +141,25 @@ augroup markdown
     au BufNewFile,BufRead *.md,*.markdown setlocal filetype=markdown
     au FileType markdown setlocal ts=4 sw=4 noet
 augroup END
+
+inoremap <silent><expr> <TAB>
+      \ pumvisible() ? "\<C-n>" :
+      \ <SID>check_back_space() ? "\<TAB>" :
+      \ coc#refresh()
+inoremap <expr><S-TAB> pumvisible() ? "\<C-p>" : "\<C-h>"
+
+function! s:check_back_space() abort
+  let col = col('.') - 1
+  return !col || getline('.')[col - 1]  =~# '\s'
+endfunction
+
+
+inoremap <silent><expr> <c-@> coc#refresh()
+
+nmap <silent> gd <Plug>(coc-definition)
+nmap <silent> gy <Plug>(coc-type-definition)
+nmap <silent> gi <Plug>(coc-implementation)
+nmap <silent> gr <Plug>(coc-references)
 
 
 """"""""""""""""""""""""""""""""""""""""""""""
@@ -203,4 +208,3 @@ function! ToggleFocusMode()
 endfunc
 nnoremap <F1> :call ToggleFocusMode()<cr>
 
-"call feedkeys('<C-[>')
