@@ -305,7 +305,7 @@ handle_mime() {
             # env HIGHLIGHT_OPTIONS="${HIGHLIGHT_OPTIONS}" highlight \
             #     --out-format="${highlight_format}" \
             #     --force -- "${FILE_PATH}" && exit 5
-			env COLORTERM=8bit batcat --theme=base16 --color=always \
+			env COLORTERM=256bit batcat --theme=TwoDark --color=always \
                 -- "${FILE_PATH}" && exit 5
             # batcat --color=always --theme=zenburn -- "${FILE_PATH}" && exit 5
             # pygmentize -f "${pygmentize_format}" -O "style=${PYGMENTIZE_STYLE}"\

@@ -37,6 +37,7 @@ call plug#begin('~/.vim/plugged')
 Plug 'pechorin/any-jump.vim'
 Plug 'christoomey/vim-system-copy'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
+Plug 'junegunn/fzf.vim'
 Plug 'preservim/nerdtree', { 'on':  'NERDTreeToggle' }
 Plug 'junegunn/vim-easy-align'
 Plug 'Yggdroot/indentLine'
@@ -115,9 +116,16 @@ nnoremap K <C-W><C-K>
 nnoremap L <C-W><C-L>
 nnoremap H <C-W><C-H>
 
+nnoremap <silent> <c-Up> :resize -5<CR>
+nnoremap <silent> <c-Down> :resize +5<CR>
+nnoremap <silent> <c-left> :vertical resize +5<CR>
+nnoremap <silent> <c-right> :vertical resize -5<CR>
+
+
 nnoremap ( :tabprevious<CR>
 nnoremap ) :tabnext<CR>
 nnoremap <C-f> :FZF<CR>
+nnoremap <C-r> :Rg<CR>
 
 
 function! s:buflist()

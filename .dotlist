@@ -23,6 +23,7 @@
 .config/i3blocks
 .config/rofi/black.rasi
 .config/rofi/config.rasi
+.config/rofi/sidebar_dark.rasi
 .config/kitty/kitty.conf
 .config/kitty/open-action.conf
 .ipython/profile_default/startup
