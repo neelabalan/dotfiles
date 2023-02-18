@@ -57,6 +57,7 @@ force_color_prompt=yes
 export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
+alias gc='git clone'
 alias cls='printf "\033[2J\033[H\033[3J"'
 alias python='python3'
 alias randname='python3 ~/.scripts/namesgenerator.py'

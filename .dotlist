@@ -5,6 +5,7 @@
 .vimrc
 .dmrc
 .nam
+.visidatarc
 .scripts
 .vim/auto-pairs-master
 .vim/autoload
