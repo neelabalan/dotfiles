@@ -1,0 +1,24 @@
+.MathJax {
+    font-size: 1.3em;
+}
+
+body {
+    --text-normal: var(--color-base-70);
+    --blockquote-color: var(--text-faint);
+    --blockquote-border-thickness: 4px;
+    --blockquote-border-color: var(--text-faint);
+    --list-bullet-size: 0.45em;
+    --list-marker-color: var(--color-base-70);
+    --code-size: 0.9em;
+    --code-background: var(--color-base-25);
+    --code-normal: #cacaca;
+    --code-function: #cacaca;
+    --code-important: #858585;
+    --code-keyword: #009adc;
+    --code-operator: #cacaca;
+    --code-property: #cacaca;
+    --code-punctuation: #ce9178;
+    --code-string: #ce9178;
+    --code-tag: #cacaca;
+    --code-value: #288501;
+}
