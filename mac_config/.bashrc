@@ -56,6 +56,7 @@ alias fd='fdfind'
 alias ll='exa -alF'
 alias ls='exa'
 alias svim='sudo vim'
+alias clk='kitty -o font_size=20 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y &'
 
 
 if ! shopt -oq posix; then
