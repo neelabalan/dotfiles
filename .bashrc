@@ -9,10 +9,12 @@ set editing-mode vi
 bldylw='\e[1;33m'
 txtrst='\e[0m'
 set vi-cmd-mode-string \[$bldylw\] [N] \[$txtrst\]
+export LS_COLORS="*.*=0:di=34"
 
 export PATH=$PATH:~/.scripts/
 export PATH=$PATH:~/.local/bin/
 export PATH=$PATH:~/.poetry/bin/
+export PATH=$PATH:~/.local/go/bin/
 export CHEATCOLORS=true
 export LIBVA_DRIVER_NAME=i965
 bind '"\e[A": history-search-backward'
@@ -42,9 +44,9 @@ fi
 shopt -s checkwinsize
 
 /usr/bin/setxkbmap -option "ctrl:swapcaps"
-xmodmap -e "keycode 23 = Alt_L"
-xmodmap -e "keycode 64 = grave asciitilde"
-xmodmap -e "keycode 49 = Tab"
+# xmodmap -e "keycode 23 = Alt_L"
+# xmodmap -e "keycode 64 = grave asciitilde"
+# xmodmap -e "keycode 49 = Tab"
 # end 
 
 case "$TERM" in
@@ -69,8 +71,8 @@ alias r='ranger'
 alias pi='ipython3'
 alias bat='batcat --theme TwoDark'
 alias fd='fdfind'
-alias ll='exa -alF'
-alias ls='exa'
+alias ll='eza -alF'
+alias ls='eza'
 alias svim='sudo vim'
 
 vman() 
