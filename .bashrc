@@ -60,6 +60,7 @@ export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quo
 
 # some more ls aliases
 alias gc='git clone'
+alias gw='git worktree'
 alias cls='printf "\033[2J\033[H\033[3J"'
 alias python='python3'
 alias randname='python3 ~/.scripts/namesgenerator.py'
