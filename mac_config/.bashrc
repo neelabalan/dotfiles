@@ -70,6 +70,48 @@ fi
 
 
 
+
+# Function to search GitHub for a commit hash or pull requests
+searchcommit() {
+    local SEARCH_TYPE="commits"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pr)
+                SEARCH_TYPE="pullrequests"
+                shift
+                ;;
+            --cm)
+                SEARCH_TYPE="commits"
+                shift
+                ;;
+            *)
+                COMMIT_HASH="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$COMMIT_HASH" ]; then
+        echo "Usage: searchcommit [--pr|--cm] <commit-hash>"
+        return 1
+    fi
+
+    local SEARCH_URL="https://github.com/search?q=${COMMIT_HASH}&type=${SEARCH_TYPE}"
+
+    if command -v xdg-open > /dev/null; then
+        # Linux
+        xdg-open "$SEARCH_URL"
+    elif command -v open > /dev/null; then
+        # macOS
+        open "$SEARCH_URL"
+    else
+        echo "Could not detect the command to open a browser."
+        echo "Please copy and paste this URL into your browser: $SEARCH_URL"
+        return 2
+    fi
+}
+
 code () { VSCODE_CWD="$PWD" open -n -b "com.microsoft.VSCode" --args $* ;}
 
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
