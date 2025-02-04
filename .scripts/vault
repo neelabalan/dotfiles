@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+# Vault - Secure Directory Encryption Tool
+# A command line utility to encrypt/decrypt directories using age encryption.
+
+set -e
+AGE_KEY_FILE="$HOME/.age.key"
+
+
+# Ensure age is installed
+if ! command -v age &>/dev/null; then
+    echo "Error: 'age' is not installed. Please install it first."
+    exit 1
+fi
+
+# Generate a key if not exists
+if [ ! -f "$AGE_KEY_FILE" ]; then
+    echo "Generating a new encryption key..."
+    age-keygen > "$AGE_KEY_FILE"
+    echo "Key saved at $AGE_KEY_FILE. Keep this safe!"
+fi
+
+
+show_usage() {
+    echo "Usage: $0 encrypt [-d] <directory> | decrypt <file>"
+    echo "Options:"
+    echo "  -d    Delete source directory after encryption"
+}
+
+encrypt_directory() {
+    local delete_source=false
+    while getopts "d" opt; do
+        case $opt in
+            d) delete_source=true; shift;;
+        esac
+    done
+
+    local dir="$1"
+    if [ ! -d "$dir" ]; then
+        echo "Error: Directory '$dir' does not exist."
+        exit 1
+    fi
+
+    local source_dir=$(cd "$(dirname "$dir")" && pwd)
+    local base_name=$(basename "$dir")
+    local archive_name="${source_dir}/${base_name}.tar.gz"
+    local encrypted_file="${source_dir}/${base_name}.tar.gz.age"
+
+    echo "Creating an archive..."
+    tar -czf "$archive_name" -C "$dir" .
+
+    echo "Encrypting..."
+    age -r "$(grep "^# public key:" "$AGE_KEY_FILE" | awk '{print $4}')" -o "$encrypted_file" "$archive_name"
+
+    rm -f "$archive_name"
+    
+    if [ "$delete_source" = true ]; then
+        echo "Deleting source directory..."
+        rm -rf "$dir"
+    fi
+    
+    echo "Encryption complete: $encrypted_file"
+}
+
+decrypt_file() {
+    local file="$1"
+    if [ ! -f "$file" ]; then
+        echo "Error: File '$file' does not exist."
+        exit 1
+    fi
+
+    local source_dir=$(cd "$(dirname "$file")" && pwd)
+    local base_name=$(basename "$file" .age)
+    local archive_name="${source_dir}/${base_name}"
+    
+    echo "Decrypting..."
+    age -d -i "$AGE_KEY_FILE" -o "$archive_name" "$file"
+    
+    echo "Extracting files..."
+    local output_dir="${source_dir}/decrypted_${base_name%.tar.gz}"
+    mkdir -p "$output_dir"
+    tar -xzf "$archive_name" -C "$output_dir"
+
+    rm -f "$archive_name"
+    echo "Decryption complete: $output_dir"
+}
+
+case "$1" in
+    encrypt)
+        shift
+        encrypt_directory "$@"
+        ;;
+    decrypt)
+        decrypt_file "$2"
+        ;;
+    *)
+        show_usage
+        exit 1
+        ;;
+esac
