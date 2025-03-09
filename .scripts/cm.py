@@ -1,0 +1,154 @@
+# python3.10+
+import argparse
+import json
+import pathlib
+import sqlite3
+import subprocess
+import tempfile
+
+cm_path = pathlib.Path.home() / ".local/cm/cm.db"
+db = sqlite3.connect(cm_path)
+db.row_factory = sqlite3.Row
+
+
+DELIMITER = "\x1f"
+
+
+def init():
+    cm_path.mkdir(parents=True, exist_ok=True)
+    cur = db.cursor()
+    cur.execute("""
+    CREATE TABLE shellcommand (
+        command TEXT NOT NULL UNIQUE,
+        tag TEXT,
+        description TEXT
+    )
+    """)
+
+
+def open_temp_file(template: dict[str, str] | None = None) -> tuple[str, int]:
+    if not template:
+        template = {"command": "", "tag": "", "description": ""}
+    _, filename = tempfile.mkstemp(suffix=".json", text=True)
+    with open(filename, "w") as _file:
+        json.dump(template, _file, indent=4)
+    write_status = subprocess.call(["vi", filename])
+    return filename, write_status
+
+
+def insert(command: dict[str, str]):
+    try:
+        cur = db.cursor()
+        cur.execute("INSERT INTO shellcommand VALUES(?, ?, ?)", (command.get("command"), command.get("tag"), command.get("description")))
+        db.commit()
+    except Exception as err:
+        print(f"Exception encountered while saving the command - {err}")
+
+
+def get_commands() -> list[dict[str, str]]:
+    cur = db.cursor()
+    res = cur.execute("SELECT * FROM shellcommand")
+    return [dict(x) for x in res]
+
+
+def select_command(command_list: list[dict[str, str]]) -> str:
+    fzf_input = []
+    command_map = {}
+    for command in command_list:
+        tag = command.get("tag")
+        description = command.get("description")
+        entry = f"{command.get('command')}{DELIMITER}{tag}{DELIMITER}{description}"
+        fzf_input.append(entry)
+        command_map[command.get("command")] = (tag, description)
+
+    fzf_command = ["fzf", "--preview-window=up:20%", f"--delimiter={DELIMITER}", "--with-nth=1", "--preview", "echo -e 'Tag: {2}\nDescription: {3}'", "--print0"]
+    result = subprocess.run(fzf_command, input="\n".join(fzf_input), text=True, capture_output=True)
+
+    if result.returncode == 0:
+        selected_line = result.stdout.strip().split(DELIMITER)[0]
+        tag, description = command_map[selected_line]
+    return selected_line
+
+
+def ls(args):
+    commands = get_commands()
+    selected_command = select_command(commands)
+    print("\n" + selected_command + "\n")
+
+
+def new(args):
+    filename, write_status = open_temp_file()
+    result = None
+    with open(filename, "r") as _file:
+        result = json.load(_file)
+    insert(result)
+
+
+def add(args):
+    selected = subprocess.Popen(
+        "cat ~/.bash_history | fzf",
+        shell=True,
+        stdout=subprocess.PIPE,
+    ).communicate()[0]
+    if selected:
+        command = selected.decode("utf-8").strip()
+        filename, _ = open_temp_file({"command": command, "tag": "", "description": ""})
+        result = None
+        with open(filename, "r") as _file:
+            result = json.load(_file)
+        insert(result)
+
+
+def simulate_typing_macos(command):
+    # Use AppleScript to type into the frontmost terminal on macOS
+    script = f'tell application "System Events" to keystroke "{command}"'
+    subprocess.run(["osascript", "-e", script])
+
+
+def edit(args):
+    command = get_commands()
+    selected_command = select_command(command)
+    # TODO: add edit
+    # TODO: also add import/export to JSON
+
+
+def rm(args):
+    command = get_commands()
+    selected_command = select_command(command)
+    if selected_command:
+        cur = db.cursor()
+        cur.execute(f"DELETE from shellcommand WHERE command='{selected_command}'")
+        db.commit()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="cm",
+        description="Manage your shell commands",
+    )
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    parser_new = subparsers.add_parser("n", help="Add a new command")
+    parser_new.set_defaults(func=new)
+
+    parser_new = subparsers.add_parser("init", help="Initial setup")
+    parser_new.set_defaults(func=init)
+
+    parser_list = subparsers.add_parser("a", help="List all commands")
+    parser_list.set_defaults(func=add)
+
+    parser_list = subparsers.add_parser("e", help="Edit/update commands")
+    parser_list.set_defaults(func=edit)
+
+    parser_list = subparsers.add_parser("r", help="Delete commands")
+    parser_list.set_defaults(func=rm)
+
+    parser.set_defaults(func=ls)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
