@@ -7,15 +7,13 @@ import subprocess
 import tempfile
 
 cm_path = pathlib.Path.home() / ".local/cm/cm.db"
-db = sqlite3.connect(cm_path)
-db.row_factory = sqlite3.Row
-
 
 DELIMITER = "\x1f"
 
 
-def init():
-    cm_path.mkdir(parents=True, exist_ok=True)
+def init(args):
+    cm_path.parent.mkdir(parents=True, exist_ok=True)
+    db = get_db()
     cur = db.cursor()
     cur.execute("""
     CREATE TABLE shellcommand (
@@ -24,6 +22,12 @@ def init():
         description TEXT
     )
     """)
+
+
+def get_db() -> sqlite3.Connection:
+    db = sqlite3.connect(cm_path)
+    db.row_factory = sqlite3.Row
+    return db
 
 
 def open_temp_file(template: dict[str, str] | None = None) -> tuple[str, int]:
@@ -38,14 +42,16 @@ def open_temp_file(template: dict[str, str] | None = None) -> tuple[str, int]:
 
 def insert(command: dict[str, str]):
     try:
+        db = get_db()
         cur = db.cursor()
         cur.execute("INSERT INTO shellcommand VALUES(?, ?, ?)", (command.get("command"), command.get("tag"), command.get("description")))
-        db.commit()
+        cur.commit()
     except Exception as err:
         print(f"Exception encountered while saving the command - {err}")
 
 
 def get_commands() -> list[dict[str, str]]:
+    db = get_db()
     cur = db.cursor()
     res = cur.execute("SELECT * FROM shellcommand")
     return [dict(x) for x in res]
@@ -73,7 +79,8 @@ def select_command(command_list: list[dict[str, str]]) -> str:
 def ls(args):
     commands = get_commands()
     selected_command = select_command(commands)
-    print("\n" + selected_command + "\n")
+    if selected_command:
+        print("\n" + selected_command + "\n")
 
 
 def new(args):
@@ -116,6 +123,7 @@ def rm(args):
     command = get_commands()
     selected_command = select_command(command)
     if selected_command:
+        db = get_db()
         cur = db.cursor()
         cur.execute(f"DELETE from shellcommand WHERE command='{selected_command}'")
         db.commit()
