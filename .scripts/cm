@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 # python3.10+
 import argparse
 import json
@@ -45,7 +47,7 @@ def insert(command: dict[str, str]):
         db = get_db()
         cur = db.cursor()
         cur.execute("INSERT INTO shellcommand VALUES(?, ?, ?)", (command.get("command"), command.get("tag"), command.get("description")))
-        cur.commit()
+        db.commit()
     except Exception as err:
         print(f"Exception encountered while saving the command - {err}")
 
@@ -70,6 +72,7 @@ def select_command(command_list: list[dict[str, str]]) -> str:
     fzf_command = ["fzf", "--preview-window=up:20%", f"--delimiter={DELIMITER}", "--with-nth=1", "--preview", "echo -e 'Tag: {2}\nDescription: {3}'", "--print0"]
     result = subprocess.run(fzf_command, input="\n".join(fzf_input), text=True, capture_output=True)
 
+    selected_line = None
     if result.returncode == 0:
         selected_line = result.stdout.strip().split(DELIMITER)[0]
         tag, description = command_map[selected_line]
