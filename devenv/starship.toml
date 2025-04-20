@@ -1,0 +1,9 @@
+"$schema" = "https://startship.rs/config-schema.json"
+scan_timeout = 10
+
+[directory]
+style = "bold green"
+truncate_to_repo = false
+
+[container]
+disabled=true

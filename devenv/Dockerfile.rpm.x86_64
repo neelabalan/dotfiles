@@ -1,0 +1,120 @@
+# NOTE: This Dockerfile is generated. Do not edit manually.
+FROM almalinux:9.5
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN set -e
+
+RUN dnf update -y
+RUN dnf install -y sudo
+
+ARG USERNAME=blue
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+USER $USERNAME
+
+WORKDIR /home/$USERNAME
+
+ENV HOME=/home/$USERNAME
+
+# Stage: init
+# Setup for init
+RUN sudo dnf update -y
+RUN sudo dnf install -y vim curl git make gcc --skip-broken
+
+# File copy for init
+COPY .bashrc $HOME/
+RUN sudo chown $USERNAME:$USERNAME $HOME/.bashrc
+
+# Stage: python
+# Setting Env for python
+ENV PYENV_ROOT=$HOME/.pyenv
+ENV PATH=$PYENV_ROOT/bin:$PATH
+
+# Preparation for python
+RUN sudo dnf install -y epel-release && \
+    sudo dnf install --skip-broken -y \
+        curl \
+        gcc \
+        bzip2-devel \
+        libev-devel \
+        libffi-devel \
+        xz-devel \
+        ncurses-devel \
+        readline-devel \
+        sqlite-devel \
+        openssl-devel \
+        make \
+        tk-devel \
+        wget \
+        zlib-devel
+
+
+# Setup for python
+RUN curl -fsSL https://pyenv.run | bash
+RUN eval "$(pyenv init -)" && pyenv install 3.11 && pyenv install 3.10 && pyenv global 3.11
+RUN curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+RUN pyenv exec python3.11 get-pip.py
+
+# Validation for python
+RUN command -v pyenv --version >/dev/null 2>&1 && \
+            command -v pyenv exec python3.10 --version >/dev/null 2>&1 &&  \
+            command -v pyenv exec python3.11 --version >/dev/null 2>&1
+
+
+# Stage: starship
+# Preparation for starship
+RUN sudo dnf install -y curl --skip-broken
+
+# Setup for starship
+RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
+RUN mkdir -p $HOME/.config
+
+# File copy for starship
+COPY starship.toml $HOME/.config/
+RUN sudo chown $USERNAME:$USERNAME $HOME/.config/starship.toml
+# Validation for starship
+RUN command -v starship --version >/dev/null 2>&1
+
+
+# Stage: node
+# Preparation for node
+RUN sudo dnf install -y curl --skip-broken
+
+# Setup for node
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \
+            export NVM_DIR=$HOME/.nvm && \
+            bash -c "source $NVM_DIR/nvm.sh && nvm install 22" 
+
+
+# Stage: rust
+# Setting Env for rust
+ENV PATH=$PATH:$HOME/.cargo/bin
+
+# Setup for rust
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
+
+# Validation for rust
+RUN command -v rustc --version >/dev/null 2>&1
+RUN command -v cargo -version >/dev/null 2>&1
+
+
+# Stage: tools
+# Preparation for tools
+RUN sudo dnf install -y tar
+
+# Setup for tools
+RUN sudo dnf install -y epel-release
+RUN sudo dnf update -y
+RUN sudo dnf install -y ranger fzf ripgrep
+RUN mkdir -p ~/.local/bin && curl -L "https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/
+RUN pyenv exec python3.11 -m pip install ipython
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+RUN sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+
