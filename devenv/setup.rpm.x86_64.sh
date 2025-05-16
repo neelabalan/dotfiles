@@ -83,6 +83,17 @@ function tools {
     sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 }
 
+function ssh {
+    # Preparation for ssh
+    sudo dnf install -y openssh-server
+    # Setup for ssh
+    sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
+    sudo ssh-keygen -A
+    sudo /usr/sbin/sshd
+}
+
 
 
 if [ "$1" == "--install" ]; then

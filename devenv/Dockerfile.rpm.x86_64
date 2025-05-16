@@ -7,6 +7,7 @@ RUN set -e
 RUN dnf update -y
 RUN dnf install -y sudo
 
+
 ARG USERNAME=blue
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
@@ -116,5 +117,17 @@ RUN mkdir -p ~/.local/bin && curl -L "https://github.com/eza-community/eza/relea
 RUN pyenv exec python3.11 -m pip install ipython
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 RUN sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+
+# Stage: ssh
+# Preparation for ssh
+RUN sudo dnf install -y openssh-server
+
+# Setup for ssh
+RUN sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+RUN sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
+RUN sudo ssh-keygen -A
+RUN sudo /usr/sbin/sshd
 
 

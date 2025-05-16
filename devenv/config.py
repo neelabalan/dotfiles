@@ -6,7 +6,7 @@ class DockerfileTemplate(string.Template):
 
 
 # change directly here
-distro = "deb"
+distro = "rpm"
 arch = "x86"
 
 deb_update_cmd = "sudo apt update && sudo apt upgrade -y"
@@ -32,6 +32,7 @@ deb_python_prepare = """sudo apt install -y \\
 deb_curl_install = "sudo apt install -y curl"
 deb_tar_install = "sudo apt install -y tar"
 deb_tool_setup = ["sudo apt install -y ranger fzf ripgrep"]
+deb_ssh_setup = "sudo apt install -y openssh-server"
 
 
 # RHEL based
@@ -58,6 +59,7 @@ rpm_python_prepare = """sudo dnf install -y epel-release && \\
 rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
 rpm_tool_setup = ["sudo dnf install -y epel-release", "sudo dnf update -y", "sudo dnf install -y ranger fzf ripgrep"]
+rpm_ssh_setup = "sudo dnf install -y openssh-server"
 
 
 ## Dockerfile template
@@ -97,6 +99,7 @@ if distro == "rpm":
     curl_install = rpm_curl_install
     tar_install = rpm_tar_install
     tool_setup = rpm_tool_setup
+    ssh_setup = rpm_ssh_setup
 elif distro == "deb":
     update_cmd = deb_update_cmd
     base_packages_installation = deb_base_packages_installation
@@ -105,6 +108,7 @@ elif distro == "deb":
     curl_install = deb_curl_install
     tar_install = deb_tar_install
     tool_setup = deb_tool_setup
+    ssh_setup = deb_ssh_setup
 else:
     ...
 
@@ -158,4 +162,14 @@ conf = {
             "sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl",
         ],
     },
+    "ssh": {
+        "prepare": [ssh_setup],
+        "setup": [
+            "sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config",
+            "sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
+            "sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config",
+            "sudo ssh-keygen -A",
+            "sudo /usr/sbin/sshd"
+        ]
+    }
 }
