@@ -33,6 +33,7 @@ deb_curl_install = "sudo apt install -y curl"
 deb_tar_install = "sudo apt install -y tar"
 deb_tool_setup = ["sudo apt install -y ranger fzf ripgrep"]
 deb_ssh_setup = "sudo apt install -y openssh-server"
+deb_optional_pacakges = "sudo apt install -y procps iproute2" # with --init flag (tini)
 
 
 # RHEL based
@@ -60,6 +61,7 @@ rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
 rpm_tool_setup = ["sudo dnf install -y epel-release", "sudo dnf update -y", "sudo dnf install -y ranger fzf ripgrep"]
 rpm_ssh_setup = "sudo dnf install -y openssh-server"
+rpm_optional_packages = "sudo dnf install -y procps iproute"
 
 
 ## Dockerfile template
@@ -100,6 +102,7 @@ if distro == "rpm":
     tar_install = rpm_tar_install
     tool_setup = rpm_tool_setup
     ssh_setup = rpm_ssh_setup
+    optional_packages = rpm_optional_packages
 elif distro == "deb":
     update_cmd = deb_update_cmd
     base_packages_installation = deb_base_packages_installation
@@ -109,6 +112,7 @@ elif distro == "deb":
     tar_install = deb_tar_install
     tool_setup = deb_tool_setup
     ssh_setup = deb_ssh_setup
+    optional_packages = deb_optional_pacakges
 else:
     ...
 
@@ -169,7 +173,11 @@ conf = {
             "sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
             "sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config",
             "sudo ssh-keygen -A",
-            "sudo /usr/sbin/sshd"
+        ]
+    },
+    "optional": {
+        "setup": [
+            optional_packages
         ]
     }
 }

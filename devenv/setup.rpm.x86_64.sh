@@ -91,7 +91,11 @@ function ssh {
     sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
     sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
     sudo ssh-keygen -A
-    sudo /usr/sbin/sshd
+}
+
+function optional {
+    # Setup for optional
+    sudo dnf install -y procps iproute
 }
 
 
