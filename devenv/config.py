@@ -179,5 +179,17 @@ conf = {
         "setup": [
             optional_packages
         ]
-    }
+    },
+        "go": {
+        "prepare": [curl_install],
+        "setup": [
+            "GO_VERSION=1.22.4",
+            "curl -LO https://go.dev/dl/go1.22.4.linux-amd64.tar.gz",
+            "sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz",
+            "echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc",
+            "source $HOME/.bashrc"
+        ],
+        "env": [{"PATH": "$PATH:/usr/local/go/bin"}],
+        "validation": ["command -v go >/dev/null 2>&1"]
+    },
 }
