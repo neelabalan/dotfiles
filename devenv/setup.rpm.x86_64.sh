@@ -27,13 +27,15 @@ function python {
         make \
         tk-devel \
         wget \
-        zlib-devel
+        zlib-devel \
+        ncdu
 
     # Setup for python
     curl -fsSL https://pyenv.run | bash
     eval "$(pyenv init -)" && pyenv install 3.11 && pyenv install 3.10 && pyenv global 3.11
     curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
     pyenv exec python3.11 get-pip.py
+    rm get-pip.py
     # Validation for python
     command -v pyenv --version >/dev/null 2>&1 && \
             command -v pyenv exec python3.10 --version >/dev/null 2>&1 &&  \

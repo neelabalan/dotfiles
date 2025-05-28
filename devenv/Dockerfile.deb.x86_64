@@ -7,6 +7,7 @@ RUN set -e
 RUN apt update && apt upgrade -y
 RUN apt install -y sudo
 
+
 ARG USERNAME=blue
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
@@ -52,7 +53,8 @@ RUN sudo apt install -y \
     make \
     tk-dev \
     wget \
-    zlib1g-dev
+    zlib1g-dev \
+    ncdu
 
 
 # Setup for python
@@ -60,6 +62,7 @@ RUN curl -fsSL https://pyenv.run | bash
 RUN eval "$(pyenv init -)" && pyenv install 3.11 && pyenv install 3.10 && pyenv global 3.11
 RUN curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 RUN pyenv exec python3.11 get-pip.py
+RUN rm get-pip.py
 
 # Validation for python
 RUN command -v pyenv --version >/dev/null 2>&1 && \
@@ -114,5 +117,39 @@ RUN mkdir -p ~/.local/bin && curl -L "https://github.com/eza-community/eza/relea
 RUN pyenv exec python3.11 -m pip install ipython
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 RUN sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+
+# Stage: ssh
+# Preparation for ssh
+RUN sudo apt install -y openssh-server
+
+# Setup for ssh
+RUN sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+RUN sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
+RUN sudo ssh-keygen -A
+
+
+# Stage: optional
+# Setup for optional
+RUN sudo apt install -y procps iproute2
+
+
+# Stage: go
+# Setting Env for go
+ENV PATH=$PATH:/usr/local/go/bin
+
+# Preparation for go
+RUN sudo apt install -y curl
+
+# Setup for go
+RUN GO_VERSION=1.22.4
+RUN curl -LO https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
+RUN sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+RUN echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc
+RUN source $HOME/.bashrc
+
+# Validation for go
+RUN command -v go >/dev/null 2>&1
 
 

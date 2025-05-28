@@ -6,7 +6,7 @@ class DockerfileTemplate(string.Template):
 
 
 # change directly here
-distro = "rpm"
+distro = "deb"
 arch = "x86"
 
 deb_update_cmd = "sudo apt update && sudo apt upgrade -y"
@@ -27,7 +27,8 @@ deb_python_prepare = """sudo apt install -y \\
     make \\
     tk-dev \\
     wget \\
-    zlib1g-dev
+    zlib1g-dev \\
+    ncdu
 """
 deb_curl_install = "sudo apt install -y curl"
 deb_tar_install = "sudo apt install -y tar"
@@ -55,7 +56,8 @@ rpm_python_prepare = """sudo dnf install -y epel-release && \\
         make \\
         tk-devel \\
         wget \\
-        zlib-devel
+        zlib-devel \\
+        ncdu
 """
 rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
@@ -130,6 +132,7 @@ conf = {
             'eval "$(pyenv init -)" && pyenv install 3.11 && pyenv install 3.10 && pyenv global 3.11',
             "curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py",
             "pyenv exec python3.11 get-pip.py",
+            "rm get-pip.py"
         ],
         "validation": [
             """command -v pyenv --version >/dev/null 2>&1 && \\

@@ -27,13 +27,15 @@ function python {
     make \
     tk-dev \
     wget \
-    zlib1g-dev
+    zlib1g-dev \
+    ncdu
 
     # Setup for python
     curl -fsSL https://pyenv.run | bash
     eval "$(pyenv init -)" && pyenv install 3.11 && pyenv install 3.10 && pyenv global 3.11
     curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
     pyenv exec python3.11 get-pip.py
+    rm get-pip.py
     # Validation for python
     command -v pyenv --version >/dev/null 2>&1 && \
             command -v pyenv exec python3.10 --version >/dev/null 2>&1 &&  \
@@ -79,6 +81,34 @@ function tools {
     pyenv exec python3.11 -m pip install ipython
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+}
+
+function ssh {
+    # Preparation for ssh
+    sudo apt install -y openssh-server
+    # Setup for ssh
+    sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
+    sudo ssh-keygen -A
+}
+
+function optional {
+    # Setup for optional
+    sudo apt install -y procps iproute2
+}
+
+function go {
+    # Preparation for go
+    sudo apt install -y curl
+    # Setup for go
+    GO_VERSION=1.22.4
+    curl -LO https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
+    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc
+    source $HOME/.bashrc
+    # Validation for go
+    command -v go >/dev/null 2>&1
 }
 
 
