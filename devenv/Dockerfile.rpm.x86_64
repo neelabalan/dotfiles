@@ -145,9 +145,9 @@ ENV PATH=$PATH:/usr/local/go/bin
 RUN sudo dnf install -y curl --skip-broken
 
 # Setup for go
-RUN GO_VERSION=1.22.4
-RUN curl -LO https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
-RUN sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+RUN curl -LO https://go.dev/dl/go1.23.9.linux-amd64.tar.gz
+RUN sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz
+RUN rm go1.23.9.linux-amd64.tar.gz
 RUN echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc
 RUN source $HOME/.bashrc
 

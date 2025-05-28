@@ -6,8 +6,10 @@ class DockerfileTemplate(string.Template):
 
 
 # change directly here
-distro = "deb"
+distro = "rpm"
 arch = "x86"
+
+GO_VERSION = "go1.23.9"
 
 deb_update_cmd = "sudo apt update && sudo apt upgrade -y"
 deb_base_packages_installation = "sudo apt install -y vim curl git build-essential make"
@@ -186,9 +188,9 @@ conf = {
         "go": {
         "prepare": [curl_install],
         "setup": [
-            "GO_VERSION=1.22.4",
-            "curl -LO https://go.dev/dl/go1.22.4.linux-amd64.tar.gz",
-            "sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz",
+            f"curl -LO https://go.dev/dl/{GO_VERSION}.linux-amd64.tar.gz",
+            f"sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {GO_VERSION}.linux-amd64.tar.gz",
+            f"rm {GO_VERSION}.linux-amd64.tar.gz",
             "echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc",
             "source $HOME/.bashrc"
         ],
