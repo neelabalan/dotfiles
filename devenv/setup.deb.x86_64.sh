@@ -11,35 +11,9 @@ function init {
 }
 
 function python {
-    # Preparation for python
-    sudo apt install -y \
-    curl \
-    gcc \
-    libbz2-dev \
-    libev-dev \
-    libffi-dev \
-    libgdbm-dev \
-    liblzma-dev \
-    libncurses-dev \
-    libreadline-dev \
-    libsqlite3-dev \
-    libssl-dev \
-    make \
-    tk-dev \
-    wget \
-    zlib1g-dev \
-    ncdu
-
     # Setup for python
-    curl -fsSL https://pyenv.run | bash
-    eval "$(pyenv init -)" && pyenv install 3.11 && pyenv install 3.10 && pyenv global 3.11
-    curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-    pyenv exec python3.11 get-pip.py
-    rm get-pip.py
-    # Validation for python
-    command -v pyenv --version >/dev/null 2>&1 && \
-            command -v pyenv exec python3.10 --version >/dev/null 2>&1 &&  \
-            command -v pyenv exec python3.11 --version >/dev/null 2>&1
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    uv python install 3.11 3.13
 }
 
 function starship {
@@ -76,9 +50,9 @@ function tools {
     # Preparation for tools
     sudo apt install -y tar
     # Setup for tools
-    sudo apt install -y ranger fzf ripgrep
+    sudo apt install -y ranger fzf ripgrep wget ncdu
     mkdir -p ~/.local/bin && curl -L "https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/
-    pyenv exec python3.11 -m pip install ipython
+    uv tool install --python 3.11 ipython
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 }
@@ -102,9 +76,9 @@ function go {
     # Preparation for go
     sudo apt install -y curl
     # Setup for go
-    GO_VERSION=1.22.4
-    curl -LO https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
-    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+    curl -LO https://go.dev/dl/go1.23.9.linux-amd64.tar.gz
+    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz
+    rm go1.23.9.linux-amd64.tar.gz
     echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc
     source $HOME/.bashrc
     # Validation for go

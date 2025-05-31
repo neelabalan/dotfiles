@@ -8,10 +8,8 @@ bldylw='\e[1;33m'
 txtrst='\e[0m'
 set vi-cmd-mode-string \[$bldylw\] [N] \[$txtrst\]
 
-export PYENV_ROOT=$HOME/.pyenv
 export PATH=$PATH:~/.poetry/bin/
 export PATH=$PATH:/usr/local/go/bin
-export PATH=$PATH:$PYENV_ROOT/bin
 export PATH=$PATH:$HOME/.cargo/bin
 export PATH=$PATH:$HOME/.local/bin
 
@@ -117,7 +115,6 @@ searchcommit() {
 
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
-eval "$(pyenv init -)"
 eval "$(starship init bash)"
 
 export NVM_DIR="$HOME/.nvm"
