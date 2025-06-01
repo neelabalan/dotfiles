@@ -126,3 +126,6 @@ RUN source $HOME/.bashrc
 RUN command -v go >/dev/null 2>&1
 
 
+
+ARG PASSWORD=admin
+RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd

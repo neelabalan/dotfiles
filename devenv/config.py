@@ -59,6 +59,9 @@ WORKDIR /home/$USERNAME
 ENV HOME=/home/$USERNAME
 
 <$>tool_stages
+
+ARG PASSWORD=admin
+RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
 """)
 
 if distro == "rpm":
