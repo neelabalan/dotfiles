@@ -24,7 +24,7 @@ deb_optional_pacakges = "sudo apt install -y procps iproute2" # with --init flag
 # RHEL based
 rpm_update_cmd = "sudo dnf update -y"
 rpm_base_packages_installation = "sudo dnf install -y vim curl git make gcc --skip-broken"
-rpm_base_image = "almalinux:9.5"
+rpm_base_image = "almalinux:9"
 rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
 rpm_tool_setup = ["sudo dnf install -y epel-release", "sudo dnf update -y", "sudo dnf install -y ranger fzf ripgrep"]
@@ -35,9 +35,7 @@ rpm_optional_packages = "sudo dnf install -y procps iproute"
 ## Dockerfile template
 docker_base_template = DockerfileTemplate("""# NOTE: This Dockerfile is generated. Do not edit manually.
 FROM <$>base_image
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-RUN set -e
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 RUN <$>update
 RUN <$>install_sudo
@@ -60,6 +58,7 @@ ENV HOME=/home/$USERNAME
 
 <$>tool_stages
 
+# SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data
 ARG PASSWORD=admin
 RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
 """)
@@ -86,15 +85,17 @@ else:
     ...
 
 
+UV_VERSION = "0.7.9"
+
 conf = {
     "init": {
-        "setup": [update_cmd, base_packages_installation],
+        "setup": [base_packages_installation],
         "copy": [{"source": ".bashrc", "destination": "$HOME/"}],
     },
     "python": {
         "env": [{"PATH": "$HOME/.local/bin:$PATH"}],
         "setup": [
-            "curl -LsSf https://astral.sh/uv/install.sh | sh",
+            f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh",
             "uv python install 3.11 3.13"
         ],
     },

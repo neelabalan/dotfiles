@@ -1,8 +1,6 @@
 # NOTE: This Dockerfile is generated. Do not edit manually.
 FROM debian:bookworm
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-RUN set -e
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 RUN apt update && apt upgrade -y
 RUN apt install -y sudo
@@ -25,7 +23,6 @@ ENV HOME=/home/$USERNAME
 
 # Stage: init
 # Setup for init
-RUN sudo apt update && sudo apt upgrade -y
 RUN sudo apt install -y vim curl git build-essential make
 
 # File copy for init
@@ -37,7 +34,7 @@ RUN sudo chown $USERNAME:$USERNAME $HOME/.bashrc
 ENV PATH=$HOME/.local/bin:$PATH
 
 # Setup for python
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN curl -LsSf https://astral.sh/uv/0.7.9/install.sh | sh
 RUN uv python install 3.11 3.13
 
 
@@ -124,3 +121,7 @@ RUN source $HOME/.bashrc
 RUN command -v go >/dev/null 2>&1
 
 
+
+# SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data
+ARG PASSWORD=admin
+RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd

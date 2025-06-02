@@ -6,13 +6,12 @@ function init {
     mkdir -p $(dirname '$HOME/')
     cp .bashrc '$HOME/'
     # Setup for init
-    sudo apt update && sudo apt upgrade -y
     sudo apt install -y vim curl git build-essential make
 }
 
 function python {
     # Setup for python
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/0.7.9/install.sh | sh
     uv python install 3.11 3.13
 }
 
