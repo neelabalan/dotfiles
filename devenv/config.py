@@ -27,7 +27,7 @@ rpm_base_packages_installation = "sudo dnf install -y vim curl git make gcc --sk
 rpm_base_image = "almalinux:9"
 rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
-rpm_tool_setup = ["sudo dnf install -y epel-release", "sudo dnf update -y", "sudo dnf install -y ranger fzf ripgrep"]
+rpm_tool_setup = ["sudo dnf install -y epel-release", "sudo dnf update -y", "sudo dnf install -y ranger fzf ripgrep ncdu"]
 rpm_ssh_setup = "sudo dnf install -y openssh-server"
 rpm_optional_packages = "sudo dnf install -y procps iproute"
 
