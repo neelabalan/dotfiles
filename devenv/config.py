@@ -18,7 +18,7 @@ deb_curl_install = "sudo apt install -y curl"
 deb_tar_install = "sudo apt install -y tar"
 deb_tool_setup = ["sudo apt install -y ranger fzf ripgrep wget ncdu"]
 deb_ssh_setup = "sudo apt install -y openssh-server"
-deb_optional_pacakges = "sudo apt install -y procps iproute2" # with --init flag (tini)
+deb_optional_pacakges = "sudo apt install -y procps iproute2"  # with --init flag (tini)
 
 
 # RHEL based
@@ -86,6 +86,7 @@ else:
 
 
 UV_VERSION = "0.7.9"
+PNPM_VERSION = "9.15.9"
 
 conf = {
     "init": {
@@ -94,10 +95,7 @@ conf = {
     },
     "python": {
         "env": [{"PATH": "$HOME/.local/bin:$PATH"}],
-        "setup": [
-            f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh",
-            "uv python install 3.11 3.13"
-        ],
+        "setup": [f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh", "uv python install 3.11 3.13"],
     },
     "starship": {
         "prepare": [curl_install],
@@ -135,23 +133,24 @@ conf = {
             "sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
             "sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config",
             "sudo ssh-keygen -A",
-        ]
+        ],
     },
-    "optional": {
-        "setup": [
-            optional_packages
-        ]
-    },
-        "go": {
+    "optional": {"setup": [optional_packages]},
+    "go": {
         "prepare": [curl_install],
         "setup": [
             f"curl -LO https://go.dev/dl/{GO_VERSION}.linux-amd64.tar.gz",
             f"sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {GO_VERSION}.linux-amd64.tar.gz",
             f"rm {GO_VERSION}.linux-amd64.tar.gz",
             "echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc",
-            "source $HOME/.bashrc"
+            "source $HOME/.bashrc",
         ],
         "env": [{"PATH": "$PATH:/usr/local/go/bin"}],
-        "validation": ["command -v go >/dev/null 2>&1"]
+        "validation": ["command -v go >/dev/null 2>&1"],
     },
+    "pnpm": {
+        "setup": [
+            f"curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={PNPM_VERSION} sh -"
+        ]
+    }
 }
