@@ -95,11 +95,11 @@ conf = {
     },
     "python": {
         "env": [{"PATH": "$HOME/.local/bin:$PATH"}],
-        "setup": [f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh", "uv python install 3.11 3.13"],
+        "setup": [f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh && uv python install 3.11 3.13"],
     },
     "starship": {
         "prepare": [curl_install],
-        "setup": ["curl -sS https://starship.rs/install.sh | sh -s -- -y", "mkdir -p $HOME/.config"],
+        "setup": ["curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config"],
         "copy": [{"source": "starship.toml", "destination": "$HOME/.config/"}],
         "validation": ["command -v starship --version >/dev/null 2>&1"],
     },
@@ -108,7 +108,7 @@ conf = {
         "setup": [
             """curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \\
             export NVM_DIR=$HOME/.nvm && \\
-            bash -c \"source $NVM_DIR/nvm.sh && nvm install 22\" """
+            bash -c 'source $NVM_DIR/nvm.sh && nvm install 22'"""
         ],
     },
     "rust": {
@@ -120,30 +120,30 @@ conf = {
         "prepare": [tar_install],
         "setup": tool_setup
         + [
-            'mkdir -p ~/.local/bin && curl -L "https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/',
-            "uv tool install --python 3.11 ipython",
-            'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"',
-            "sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl",
+            """mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
+            uv tool install --python 3.11 ipython && \\
+            curl -LO 'https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl' && \\
+            sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
         ],
     },
     "ssh": {
         "prepare": [ssh_setup],
         "setup": [
-            "sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config",
-            "sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
-            "sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config",
-            "sudo ssh-keygen -A",
+            """sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \\
+            sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \\
+            sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config && \\
+            sudo ssh-keygen -A"""
         ],
     },
     "optional": {"setup": [optional_packages]},
     "go": {
         "prepare": [curl_install],
         "setup": [
-            f"curl -LO https://go.dev/dl/{GO_VERSION}.linux-amd64.tar.gz",
-            f"sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {GO_VERSION}.linux-amd64.tar.gz",
-            f"rm {GO_VERSION}.linux-amd64.tar.gz",
-            "echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc",
-            "source $HOME/.bashrc",
+            f"""curl -LO https://go.dev/dl/{GO_VERSION}.linux-amd64.tar.gz && \\
+            sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {GO_VERSION}.linux-amd64.tar.gz && \\
+            rm {GO_VERSION}.linux-amd64.tar.gz && \\
+            echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \\
+            source $HOME/.bashrc""",
         ],
         "env": [{"PATH": "$PATH:/usr/local/go/bin"}],
         "validation": ["command -v go >/dev/null 2>&1"],

@@ -37,6 +37,23 @@ fi
 """
 
 
+def normalize_indent_after_first_line(s: str, indent: int = 4) -> str:
+    lines = s.splitlines()
+    if not lines:
+        return s
+
+    first_line = lines[0]
+    rest_lines = lines[1:]
+
+    normalized = [first_line]
+    for line in rest_lines:
+        if line.strip() == "":
+            normalized.append("")
+        else:
+            normalized.append(" " * indent + line.lstrip())
+
+    return "\n".join(normalized)
+
 class DockerfileBuilder:
     def __init__(self, tools: dict[str, dict]) -> None:
         self.tools = tools
@@ -61,7 +78,7 @@ class DockerfileBuilder:
         if tool.get("setup"):
             buf.write(f"# Setup for {name}\n")
             for cmd in tool["setup"]:
-                buf.write(f"RUN {cmd}\n")
+                buf.write(f"RUN {normalize_indent_after_first_line(cmd)}\n")
             buf.write("\n")
 
         if tool.get("copy"):
@@ -81,6 +98,7 @@ class DockerfileBuilder:
 
     def build(self) -> str:
         stages = []
+        # TODO: Remove duplicate commands
         for name, tool in self.tools.items():
             stages.append(self.build_tool_stage(name, tool))
         return docker_base_template.substitute(tool_stages="\n".join(stages))
@@ -108,7 +126,7 @@ class SetupShBuilder:
         if tool.get("setup"):
             buf.write(f"    # Setup for {name}\n")
             for cmd in tool["setup"]:
-                buf.write(f"    {cmd}\n")
+                buf.write(f"    {normalize_indent_after_first_line(cmd, indent=8)}\n")
 
         if tool.get("validation"):
             buf.write(f"    # Validation for {name}\n")
