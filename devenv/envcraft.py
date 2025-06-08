@@ -57,6 +57,7 @@ def normalize_indent_after_first_line(s: str, indent: int = 4) -> str:
 class DockerfileBuilder:
     def __init__(self, tools: dict[str, dict]) -> None:
         self.tools = tools
+        self._registered_commands = []
 
     def build_tool_stage(self, name: str, tool: dict) -> str:
         buf = StringIO()
@@ -72,6 +73,9 @@ class DockerfileBuilder:
         if tool.get("prepare"):
             buf.write(f"# Preparation for {name}\n")
             for cmd in tool["prepare"]:
+                if cmd in self._registered_commands:
+                    continue
+                self._registered_commands.append(cmd)
                 buf.write(f"RUN {cmd}\n")
             buf.write("\n")
 
@@ -98,7 +102,6 @@ class DockerfileBuilder:
 
     def build(self) -> str:
         stages = []
-        # TODO: Remove duplicate commands
         for name, tool in self.tools.items():
             stages.append(self.build_tool_stage(name, tool))
         return docker_base_template.substitute(tool_stages="\n".join(stages))
