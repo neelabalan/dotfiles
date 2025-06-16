@@ -122,6 +122,13 @@ RUN command -v go >/dev/null 2>&1
 RUN curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=9.15.9 sh -
 
 
+# Stage: docker
+# Setup for docker
+RUN sudo dnf -y install dnf-plugins-core && \
+    sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \
+    sudo dnf install -y docker-ce-cli
+
+
 
 # SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data
 ARG PASSWORD=admin

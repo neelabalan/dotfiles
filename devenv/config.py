@@ -19,6 +19,16 @@ deb_tar_install = "sudo apt install -y tar"
 deb_tool_setup = ["sudo apt install -y ranger fzf ripgrep wget ncdu"]
 deb_ssh_setup = "sudo apt install -y openssh-server"
 deb_optional_pacakges = "sudo apt install -y procps iproute2"  # with --init flag (tini)
+deb_docker_install = """sudo install -m 0755 -d /etc/apt/keyrings && \\
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \\
+sudo chmod a+r /etc/apt/keyrings/docker.asc && \\
+echo \\
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \\
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \\
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \\
+sudo apt-get update -y && \\
+sudo apt-get install docker-ce-cli -y
+"""
 
 
 # RHEL based
@@ -30,6 +40,10 @@ rpm_tar_install = "sudo dnf install -y tar"
 rpm_tool_setup = ["sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu"]
 rpm_ssh_setup = "sudo dnf install -y openssh-server"
 rpm_optional_packages = "sudo dnf install -y procps iproute"
+# by mounting the Docker socket inside a container
+rpm_docker_install = """sudo dnf -y install dnf-plugins-core && \\
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+sudo dnf install -y docker-ce-cli"""
 
 
 ## Dockerfile template
@@ -72,6 +86,7 @@ if distro == "rpm":
     tool_setup = rpm_tool_setup
     ssh_setup = rpm_ssh_setup
     optional_packages = rpm_optional_packages
+    docker_setup = rpm_docker_install
 elif distro == "deb":
     update_cmd = deb_update_cmd
     base_packages_installation = deb_base_packages_installation
@@ -81,6 +96,7 @@ elif distro == "deb":
     tool_setup = deb_tool_setup
     ssh_setup = deb_ssh_setup
     optional_packages = deb_optional_pacakges
+    docker_setup = deb_docker_install
 else:
     ...
 
@@ -152,5 +168,8 @@ conf = {
         "setup": [
             f"curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={PNPM_VERSION} sh -"
         ]
+    },
+    "docker": {
+        "setup": [docker_setup]
     }
 }

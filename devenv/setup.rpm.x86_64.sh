@@ -87,6 +87,13 @@ function pnpm {
     curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=9.15.9 sh -
 }
 
+function docker {
+    # Setup for docker
+    sudo dnf -y install dnf-plugins-core && \
+        sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \
+        sudo dnf install -y docker-ce-cli
+}
+
 
 
 if [ "$1" == "--install" ]; then
