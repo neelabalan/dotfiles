@@ -1,6 +1,7 @@
 # NOTE: This Dockerfile is generated. Do not edit manually.
 FROM debian:bookworm
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+ENV SHELL /bin/bash
 
 RUN apt update && apt upgrade -y
 RUN apt install -y sudo
@@ -80,7 +81,7 @@ RUN sudo apt install -y tar
 RUN sudo apt install -y ranger fzf ripgrep wget ncdu
 RUN mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \
     uv tool install --python 3.11 ipython && \
-    curl -LO 'https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl' && \
+    curl -LO 'https://dl.k8s.io/release/v1.33.1/bin/linux/amd64/kubectl' && \
     sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 

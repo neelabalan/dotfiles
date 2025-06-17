@@ -6,7 +6,7 @@ class DockerfileTemplate(string.Template):
 
 
 # change directly here
-distro = "deb"
+distro = "rpm"
 arch = "x86"
 
 GO_VERSION = "go1.23.9"
@@ -59,6 +59,7 @@ rpm_cleanup = [
 docker_base_template = DockerfileTemplate("""# NOTE: This Dockerfile is generated. Do not edit manually.
 FROM <$>base_image
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+ENV SHELL /bin/bash
 
 RUN <$>update
 RUN <$>install_sudo
@@ -114,6 +115,7 @@ else:
 
 UV_VERSION = "0.7.9"
 PNPM_VERSION = "9.15.9"
+KUBECTL_VERSION = "v1.33.1"
 
 conf = {
     "init": {
@@ -147,9 +149,9 @@ conf = {
         "prepare": [tar_install],
         "setup": tool_setup
         + [
-            """mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
+            f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
             uv tool install --python 3.11 ipython && \\
-            curl -LO 'https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl' && \\
+            curl -LO 'https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/amd64/kubectl' && \\
             sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
         ],
     },
