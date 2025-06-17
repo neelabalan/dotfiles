@@ -94,6 +94,14 @@ function docker {
         sudo dnf install -y docker-ce-cli
 }
 
+function cleanup {
+    # Setup for cleanup
+    sudo dnf clean all
+    sudo rm -rf /var/cache/dnf/*
+    sudo rm -rf /usr/share/doc
+    sudo rm -rf /root/.cache
+}
+
 
 
 if [ "$1" == "--install" ]; then

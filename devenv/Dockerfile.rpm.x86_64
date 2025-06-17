@@ -129,6 +129,14 @@ RUN sudo dnf -y install dnf-plugins-core && \
     sudo dnf install -y docker-ce-cli
 
 
+# Stage: cleanup
+# Setup for cleanup
+RUN sudo dnf clean all
+RUN sudo rm -rf /var/cache/dnf/*
+RUN sudo rm -rf /usr/share/doc
+RUN sudo rm -rf /root/.cache
+
+
 
 # SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data
 ARG PASSWORD=admin

@@ -6,7 +6,7 @@ class DockerfileTemplate(string.Template):
 
 
 # change directly here
-distro = "rpm"
+distro = "deb"
 arch = "x86"
 
 GO_VERSION = "go1.23.9"
@@ -29,7 +29,10 @@ echo \\
 sudo apt-get update -y && \\
 sudo apt-get install docker-ce-cli -y
 """
-
+deb_cleanup = [
+    "sudo apt-get clean",
+    "sudo rm -rf /var/lib/apt/lists/*"
+]
 
 # RHEL based
 rpm_update_cmd = "sudo dnf update -y"
@@ -44,6 +47,12 @@ rpm_optional_packages = "sudo dnf install -y procps iproute"
 rpm_docker_install = """sudo dnf -y install dnf-plugins-core && \\
 sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
 sudo dnf install -y docker-ce-cli"""
+rpm_cleanup = [
+    "sudo dnf clean all",
+    "sudo rm -rf /var/cache/dnf/*",
+    "sudo rm -rf /usr/share/doc",
+    "sudo rm -rf /root/.cache"
+]
 
 
 ## Dockerfile template
@@ -87,6 +96,7 @@ if distro == "rpm":
     ssh_setup = rpm_ssh_setup
     optional_packages = rpm_optional_packages
     docker_setup = rpm_docker_install
+    cleanup = rpm_cleanup
 elif distro == "deb":
     update_cmd = deb_update_cmd
     base_packages_installation = deb_base_packages_installation
@@ -97,6 +107,7 @@ elif distro == "deb":
     ssh_setup = deb_ssh_setup
     optional_packages = deb_optional_pacakges
     docker_setup = deb_docker_install
+    cleanup = deb_cleanup
 else:
     ...
 
@@ -171,5 +182,8 @@ conf = {
     },
     "docker": {
         "setup": [docker_setup]
+    },
+    "cleanup": {
+        "setup": cleanup
     }
 }
