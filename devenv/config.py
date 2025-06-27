@@ -116,6 +116,8 @@ else:
 UV_VERSION = "0.7.9"
 PNPM_VERSION = "9.15.9"
 KUBECTL_VERSION = "v1.33.1"
+NVM_VERSION = "v0.39.2"
+EZA_VERSION = "v0.21.1"
 
 conf = {
     "init": {
@@ -135,7 +137,7 @@ conf = {
     "node": {
         "prepare": [curl_install],
         "setup": [
-            """curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \\
+            f"""curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{NVM_VERSION}/install.sh | bash && \\
             export NVM_DIR=$HOME/.nvm && \\
             bash -c 'source $NVM_DIR/nvm.sh && nvm install 22'"""
         ],
@@ -149,7 +151,7 @@ conf = {
         "prepare": [tar_install],
         "setup": tool_setup
         + [
-            f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
+            f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{EZA_VERSION}/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
             uv tool install --python 3.11 ipython && \\
             curl -LO 'https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/amd64/kubectl' && \\
             sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
