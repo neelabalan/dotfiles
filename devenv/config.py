@@ -16,7 +16,7 @@ deb_base_packages_installation = "sudo apt install -y vim curl git build-essenti
 deb_base_image = "debian:bookworm"
 deb_curl_install = "sudo apt install -y curl"
 deb_tar_install = "sudo apt install -y tar"
-deb_tool_setup = ["sudo apt install -y ranger fzf ripgrep wget ncdu"]
+deb_tool_setup = ["sudo apt install -y ranger fzf ripgrep wget ncdu unzip"]
 deb_ssh_setup = "sudo apt install -y openssh-server"
 deb_optional_pacakges = "sudo apt install -y procps iproute2"  # with --init flag (tini)
 deb_docker_install = """sudo install -m 0755 -d /etc/apt/keyrings && \\
@@ -40,7 +40,7 @@ rpm_base_packages_installation = "sudo dnf install -y vim curl git make gcc --sk
 rpm_base_image = "almalinux:9"
 rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
-rpm_tool_setup = ["sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu"]
+rpm_tool_setup = ["sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip"]
 rpm_ssh_setup = "sudo dnf install -y openssh-server"
 rpm_optional_packages = "sudo dnf install -y procps iproute"
 # by mounting the Docker socket inside a container

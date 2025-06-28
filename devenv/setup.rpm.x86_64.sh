@@ -47,7 +47,7 @@ function tools {
     # Preparation for tools
     sudo dnf install -y tar
     # Setup for tools
-    sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu
+    sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip
     mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \
         uv tool install --python 3.11 ipython && \
         curl -LO 'https://dl.k8s.io/release/v1.33.1/bin/linux/amd64/kubectl' && \
