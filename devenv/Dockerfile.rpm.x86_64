@@ -3,8 +3,8 @@ FROM almalinux:9
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV SHELL /bin/bash
 
-RUN dnf update -y
-RUN dnf install -y sudo
+RUN dnf update -y && \
+    dnf install -y sudo
 
 
 ARG USERNAME=blue

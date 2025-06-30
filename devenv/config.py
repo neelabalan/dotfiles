@@ -61,8 +61,8 @@ FROM <$>base_image
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV SHELL /bin/bash
 
-RUN <$>update
-RUN <$>install_sudo
+RUN <$>update && \\
+    <$>install_sudo
 
 
 ARG USERNAME=blue
