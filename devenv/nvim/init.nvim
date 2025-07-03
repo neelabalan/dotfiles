@@ -1,0 +1,66 @@
+-- Basic Neovim configuration (init.lua equivalent in init.vim)
+-- Using Neovim's native package management
+
+lua << EOF
+-- Bootstrap lazy.nvim
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+  vim.fn.system({
+    "git",
+    "clone",
+    "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git",
+    "--branch=stable",
+    lazypath,
+  })
+end
+vim.opt.rtp:prepend(lazypath)
+
+-- Plugin configuration
+require("lazy").setup({
+  "nvim-lua/plenary.nvim",           -- Common utilities
+  {
+    "nvim-telescope/telescope.nvim",  -- Modern fuzzy finder
+    dependencies = { "nvim-lua/plenary.nvim" },
+    config = function()
+      vim.keymap.set('n', '<C-p>', '<cmd>Telescope find_files<cr>')
+      vim.keymap.set('n', '<leader>fg', '<cmd>Telescope live_grep<cr>')
+    end
+  },
+  {
+    "nvim-tree/nvim-tree.lua",        -- Modern file explorer
+    config = function()
+      require("nvim-tree").setup()
+      vim.keymap.set('n', '<C-n>', '<cmd>NvimTreeToggle<cr>')
+    end
+  },
+  {
+    "nvim-lualine/lualine.nvim",      -- Modern statusline
+    config = function()
+      require('lualine').setup()
+    end
+  },
+  {
+    "Mofiqul/vscode.nvim",            -- VSCode theme
+    config = function()
+      require('vscode').setup({
+        transparent = false,
+        italic_comments = true,
+        disable_nvimtree_bg = true,
+      })
+      vim.cmd("colorscheme vscode")
+    end
+  }
+})
+
+-- Basic settings
+vim.opt.number = true
+vim.opt.relativenumber = true
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 4
+vim.opt.tabstop = 4
+vim.opt.clipboard = "unnamedplus"
+vim.opt.termguicolors = true
+vim.opt.mouse = "a"
+
+EOF

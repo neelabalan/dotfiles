@@ -27,8 +27,7 @@ ENV HOME=/home/$USERNAME
 RUN sudo dnf install -y vim curl git make gcc --skip-broken
 
 # File copy for init
-COPY .bashrc $HOME/
-RUN sudo chown $USERNAME:$USERNAME $HOME/.bashrc
+COPY --chown=$USERNAME:$USERNAME .bashrc $HOME/
 
 # Stage: python
 # Setting Env for python
@@ -46,11 +45,7 @@ RUN sudo dnf install -y curl --skip-broken
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config
 
 # File copy for starship
-COPY starship.toml $HOME/.config/
-RUN sudo chown $USERNAME:$USERNAME $HOME/.config/starship.toml
-# Validation for starship
-RUN command -v starship --version >/dev/null 2>&1
-
+COPY --chown=$USERNAME:$USERNAME starship.toml $HOME/.config/
 
 # Stage: node
 # Preparation for node
@@ -67,10 +62,6 @@ ENV PATH=$PATH:$HOME/.cargo/bin
 
 # Setup for rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
-
-# Validation for rust
-RUN command -v rustc --version >/dev/null 2>&1
-RUN command -v cargo -version >/dev/null 2>&1
 
 
 # Stage: tools
@@ -101,6 +92,15 @@ RUN sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_conf
 RUN sudo dnf install -y procps iproute
 
 
+# Stage: neovim
+# Preparation for neovim
+
+# Setup for neovim
+RUN sudo dnf install -y neovim --skip-broken
+
+# File copy for neovim
+COPY --chown=$USERNAME:$USERNAME nvim/init.nvim $HOME/.config/
+
 # Stage: go
 # Setting Env for go
 ENV PATH=$PATH:/usr/local/go/bin
@@ -113,9 +113,6 @@ RUN curl -LO https://go.dev/dl/go1.23.9.linux-amd64.tar.gz && \
     rm go1.23.9.linux-amd64.tar.gz && \
     echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \
     source $HOME/.bashrc
-
-# Validation for go
-RUN command -v go >/dev/null 2>&1
 
 
 # Stage: pnpm

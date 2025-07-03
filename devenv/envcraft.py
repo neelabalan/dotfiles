@@ -54,6 +54,7 @@ def normalize_indent_after_first_line(s: str, indent: int = 4) -> str:
 
     return "\n".join(normalized)
 
+
 class DockerfileBuilder:
     def __init__(self, tools: dict[str, dict]) -> None:
         self.tools = tools
@@ -88,15 +89,9 @@ class DockerfileBuilder:
         if tool.get("copy"):
             buf.write(f"# File copy for {name}\n")
             for f in tool["copy"]:
-                buf.write(f"COPY {f['source']} {f['destination']}\n")
-                buf.write(f"RUN sudo chown $USERNAME:$USERNAME {f['destination']+f['source']}\n")
-
-        if tool.get("validation"):
-            buf.write(f"# Validation for {name}\n")
-            for cmd in tool["validation"]:
-                buf.write(f"RUN {cmd}\n")
-            buf.write("\n")
-
+                buf.write(
+                    f"COPY --chown=$USERNAME:$USERNAME {f['source']} {f['destination']}\n"
+                )
 
         return buf.getvalue()
 
@@ -124,7 +119,9 @@ class SetupShBuilder:
             buf.write(f"    # File copy for {name}\n")
             for f in tool["copy"]:
                 buf.write(f"    mkdir -p $(dirname {shlex.quote(f['destination'])})\n")
-                buf.write(f"    cp {shlex.quote(f['source'])} {shlex.quote(f['destination'])}\n")
+                buf.write(
+                    f"    cp {shlex.quote(f['source'])} {shlex.quote(f['destination'])}\n"
+                )
 
         if tool.get("setup"):
             buf.write(f"    # Setup for {name}\n")
@@ -134,14 +131,19 @@ class SetupShBuilder:
         if tool.get("validation"):
             buf.write(f"    # Validation for {name}\n")
             for check in tool["validation"]:
-                buf.write(f'    {check}\n')
+                buf.write(f"    {check}\n")
 
         buf.write("}\n")
         return buf.getvalue()
 
     def build(self) -> str:
-        functions = [self.build_tool_function(name, tool) for name, tool in self.tools.items()]
-        return SETUP_SH_BASE.substitute(tool_functions="\n".join(functions), main_cli=MAIN_CLI)
+        functions = [
+            self.build_tool_function(name, tool) for name, tool in self.tools.items()
+        ]
+        return SETUP_SH_BASE.substitute(
+            tool_functions="\n".join(functions), main_cli=MAIN_CLI
+        )
+
 
 def write_dockerfile(tools: dict[str, dict], output_path: str) -> str:
     content = DockerfileBuilder(tools).build()
@@ -149,27 +151,36 @@ def write_dockerfile(tools: dict[str, dict], output_path: str) -> str:
     print(f"Written Dockerfile to {output_path}")
     return content
 
+
 def write_setup_sh(tools: dict[str, dict], output_path: str) -> str:
     content = SetupShBuilder(tools).build()
     Path(output_path).write_text(content)
     print(f"Written setup.sh to {output_path}")
     return content
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dockerfile', default='Dockerfile.generated', help='Output Dockerfile path')
-    parser.add_argument('--shell', default='setup.sh', help='Output setup.sh path')
-    parser.add_argument('--mode', choices=['docker', 'shell', 'both'], default='both', help='What to generate')
+    parser.add_argument(
+        "--dockerfile", default="Dockerfile.generated", help="Output Dockerfile path"
+    )
+    parser.add_argument("--shell", default="setup.sh", help="Output setup.sh path")
+    parser.add_argument(
+        "--mode",
+        choices=["docker", "shell", "both"],
+        default="both",
+        help="What to generate",
+    )
     args = parser.parse_args()
 
-
-    docker_content = setup_content = ''
-    if args.mode in ['docker', 'both']:
+    docker_content = setup_content = ""
+    if args.mode in ["docker", "both"]:
         docker_content = write_dockerfile(conf, args.dockerfile)
-    if args.mode in ['shell', 'both']:
+    if args.mode in ["shell", "both"]:
         setup_content = write_setup_sh(conf, args.shell)
 
     return docker_content, setup_content
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

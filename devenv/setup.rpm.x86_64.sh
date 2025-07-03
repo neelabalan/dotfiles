@@ -22,8 +22,6 @@ function starship {
     cp starship.toml '$HOME/.config/'
     # Setup for starship
     curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config
-    # Validation for starship
-    command -v starship --version >/dev/null 2>&1
 }
 
 function node {
@@ -38,9 +36,6 @@ function node {
 function rust {
     # Setup for rust
     curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
-    # Validation for rust
-    command -v rustc --version >/dev/null 2>&1
-    command -v cargo -version >/dev/null 2>&1
 }
 
 function tools {
@@ -69,6 +64,16 @@ function optional {
     sudo dnf install -y procps iproute
 }
 
+function neovim {
+    # Preparation for neovim
+    sudo dnf install -y curl --skip-broken
+    # File copy for neovim
+    mkdir -p $(dirname '$HOME/.config/')
+    cp nvim/init.nvim '$HOME/.config/'
+    # Setup for neovim
+    sudo dnf install -y neovim --skip-broken
+}
+
 function go {
     # Preparation for go
     sudo dnf install -y curl --skip-broken
@@ -78,8 +83,6 @@ function go {
         rm go1.23.9.linux-amd64.tar.gz && \
         echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \
         source $HOME/.bashrc
-    # Validation for go
-    command -v go >/dev/null 2>&1
 }
 
 function pnpm {

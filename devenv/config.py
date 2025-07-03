@@ -29,18 +29,21 @@ echo \\
 sudo apt-get update -y && \\
 sudo apt-get install docker-ce-cli -y
 """
-deb_cleanup = [
-    "sudo apt-get clean",
-    "sudo rm -rf /var/lib/apt/lists/*"
-]
+deb_cleanup = ["sudo apt-get clean", "sudo rm -rf /var/lib/apt/lists/*"]
+deb_neovim_install = "sudo apt install -y neovim"
+
 
 # RHEL based
 rpm_update_cmd = "sudo dnf update -y"
-rpm_base_packages_installation = "sudo dnf install -y vim curl git make gcc --skip-broken"
+rpm_base_packages_installation = (
+    "sudo dnf install -y vim curl git make gcc --skip-broken"
+)
 rpm_base_image = "almalinux:9"
 rpm_curl_install = "sudo dnf install -y curl --skip-broken"
 rpm_tar_install = "sudo dnf install -y tar"
-rpm_tool_setup = ["sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip"]
+rpm_tool_setup = [
+    "sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip"
+]
 rpm_ssh_setup = "sudo dnf install -y openssh-server"
 rpm_optional_packages = "sudo dnf install -y procps iproute"
 # by mounting the Docker socket inside a container
@@ -51,8 +54,9 @@ rpm_cleanup = [
     "sudo dnf clean all",
     "sudo rm -rf /var/cache/dnf/*",
     "sudo rm -rf /usr/share/doc",
-    "sudo rm -rf /root/.cache"
+    "sudo rm -rf /root/.cache",
 ]
+rpm_neovim_install = "sudo dnf install -y neovim --skip-broken"
 
 
 ## Dockerfile template
@@ -90,7 +94,13 @@ RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
 if distro == "rpm":
     update_cmd = rpm_update_cmd
     base_packages_installation = rpm_base_packages_installation
-    docker_base_template = DockerfileTemplate(docker_base_template.safe_substitute(base_image=rpm_base_image, update="dnf update -y", install_sudo="dnf install -y sudo"))
+    docker_base_template = DockerfileTemplate(
+        docker_base_template.safe_substitute(
+            base_image=rpm_base_image,
+            update="dnf update -y",
+            install_sudo="dnf install -y sudo",
+        )
+    )
     curl_install = rpm_curl_install
     tar_install = rpm_tar_install
     tool_setup = rpm_tool_setup
@@ -98,10 +108,17 @@ if distro == "rpm":
     optional_packages = rpm_optional_packages
     docker_setup = rpm_docker_install
     cleanup = rpm_cleanup
+    neovim_install = rpm_neovim_install
 elif distro == "deb":
     update_cmd = deb_update_cmd
     base_packages_installation = deb_base_packages_installation
-    docker_base_template = DockerfileTemplate(docker_base_template.safe_substitute(base_image=deb_base_image, update="apt update && apt upgrade -y", install_sudo="apt install -y sudo"))
+    docker_base_template = DockerfileTemplate(
+        docker_base_template.safe_substitute(
+            base_image=deb_base_image,
+            update="apt update && apt upgrade -y",
+            install_sudo="apt install -y sudo",
+        )
+    )
     curl_install = deb_curl_install
     tar_install = deb_tar_install
     tool_setup = deb_tool_setup
@@ -109,6 +126,7 @@ elif distro == "deb":
     optional_packages = deb_optional_pacakges
     docker_setup = deb_docker_install
     cleanup = deb_cleanup
+    neovim_install = deb_neovim_install
 else:
     ...
 
@@ -126,13 +144,16 @@ conf = {
     },
     "python": {
         "env": [{"PATH": "$HOME/.local/bin:$PATH"}],
-        "setup": [f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh && uv python install 3.11 3.13"],
+        "setup": [
+            f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh | sh && uv python install 3.11 3.13"
+        ],
     },
     "starship": {
         "prepare": [curl_install],
-        "setup": ["curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config"],
+        "setup": [
+            "curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config"
+        ],
         "copy": [{"source": "starship.toml", "destination": "$HOME/.config/"}],
-        "validation": ["command -v starship --version >/dev/null 2>&1"],
     },
     "node": {
         "prepare": [curl_install],
@@ -145,7 +166,6 @@ conf = {
     "rust": {
         "setup": ["curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path"],
         "env": [{"PATH": "$PATH:$HOME/.cargo/bin"}],
-        "validation": ["command -v rustc --version >/dev/null 2>&1", "command -v cargo -version >/dev/null 2>&1"],
     },
     "tools": {
         "prepare": [tar_install],
@@ -167,6 +187,11 @@ conf = {
         ],
     },
     "optional": {"setup": [optional_packages]},
+    "neovim": {
+        "prepare": [curl_install],
+        "setup": [neovim_install],
+        "copy": [{"source": "nvim/", "destination": "$HOME/.config/"}],
+    },
     "go": {
         "prepare": [curl_install],
         "setup": [
@@ -177,17 +202,12 @@ conf = {
             source $HOME/.bashrc""",
         ],
         "env": [{"PATH": "$PATH:/usr/local/go/bin"}],
-        "validation": ["command -v go >/dev/null 2>&1"],
     },
     "pnpm": {
         "setup": [
             f"curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={PNPM_VERSION} sh -"
         ]
     },
-    "docker": {
-        "setup": [docker_setup]
-    },
-    "cleanup": {
-        "setup": cleanup
-    }
+    "docker": {"setup": [docker_setup]},
+    "cleanup": {"setup": cleanup},
 }
