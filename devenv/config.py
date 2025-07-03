@@ -30,7 +30,6 @@ sudo apt-get update -y && \\
 sudo apt-get install docker-ce-cli -y
 """
 deb_cleanup = ["sudo apt-get clean", "sudo rm -rf /var/lib/apt/lists/*"]
-deb_neovim_install = "sudo apt install -y neovim"
 
 
 # RHEL based
@@ -56,7 +55,6 @@ rpm_cleanup = [
     "sudo rm -rf /usr/share/doc",
     "sudo rm -rf /root/.cache",
 ]
-rpm_neovim_install = "sudo dnf install -y neovim --skip-broken"
 
 
 ## Dockerfile template
@@ -108,7 +106,6 @@ if distro == "rpm":
     optional_packages = rpm_optional_packages
     docker_setup = rpm_docker_install
     cleanup = rpm_cleanup
-    neovim_install = rpm_neovim_install
 elif distro == "deb":
     update_cmd = deb_update_cmd
     base_packages_installation = deb_base_packages_installation
@@ -126,7 +123,6 @@ elif distro == "deb":
     optional_packages = deb_optional_pacakges
     docker_setup = deb_docker_install
     cleanup = deb_cleanup
-    neovim_install = deb_neovim_install
 else:
     ...
 
@@ -136,6 +132,7 @@ PNPM_VERSION = "9.15.9"
 KUBECTL_VERSION = "v1.33.1"
 NVM_VERSION = "v0.39.2"
 EZA_VERSION = "v0.21.1"
+NEOVIM_VERSION = "0.10.3"
 
 conf = {
     "init": {
@@ -189,7 +186,9 @@ conf = {
     "optional": {"setup": [optional_packages]},
     "neovim": {
         "prepare": [curl_install],
-        "setup": [neovim_install],
+        "setup": [
+            f"curl -LO https://github.com/neovim/neovim/releases/download/v{NEOVIM_VERSION}/nvim-linux64.tar.gz && sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux64.tar.gz && sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim && rm nvim-linux64.tar.gz"
+        ],
         "copy": [{"source": "nvim/", "destination": "$HOME/.config/"}],
     },
     "go": {

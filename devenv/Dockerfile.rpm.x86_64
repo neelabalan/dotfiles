@@ -96,10 +96,10 @@ RUN sudo dnf install -y procps iproute
 # Preparation for neovim
 
 # Setup for neovim
-RUN sudo dnf install -y neovim --skip-broken
+RUN curl -LO https://github.com/neovim/neovim/releases/download/v0.10.3/nvim-linux64.tar.gz && sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux64.tar.gz && sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim && rm nvim-linux64.tar.gz
 
 # File copy for neovim
-COPY --chown=$USERNAME:$USERNAME nvim/init.nvim $HOME/.config/
+COPY --chown=$USERNAME:$USERNAME nvim/ $HOME/.config/
 
 # Stage: go
 # Setting Env for go

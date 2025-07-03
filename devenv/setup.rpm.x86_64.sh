@@ -69,9 +69,9 @@ function neovim {
     sudo dnf install -y curl --skip-broken
     # File copy for neovim
     mkdir -p $(dirname '$HOME/.config/')
-    cp nvim/init.nvim '$HOME/.config/'
+    cp nvim/ '$HOME/.config/'
     # Setup for neovim
-    sudo dnf install -y neovim --skip-broken
+    curl -LO https://github.com/neovim/neovim/releases/download/v0.10.3/nvim-linux64.tar.gz && sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux64.tar.gz && sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim && rm nvim-linux64.tar.gz
 }
 
 function go {
