@@ -4,8 +4,7 @@ import argparse
 from io import StringIO
 from pathlib import Path
 
-from config import conf, host_arch
-from config import docker_base_template
+from config import DevEnvironmentConfig
 
 SETUP_SH_BASE = string.Template(
     """
@@ -62,8 +61,9 @@ def normalize_indent_after_first_line(s: str, indent: int = 4) -> str:
 
 
 class DockerfileBuilder:
-    def __init__(self, tools: dict[str, dict]) -> None:
-        self.tools = tools
+    def __init__(self, config: DevEnvironmentConfig) -> None:
+        self.config = config
+        self.tools = config.conf
         self._registered_commands = []
 
     def build_tool_stage(self, name: str, tool: dict) -> str:
@@ -105,12 +105,13 @@ class DockerfileBuilder:
         stages = []
         for name, tool in self.tools.items():
             stages.append(self.build_tool_stage(name, tool))
-        return docker_base_template.substitute(tool_stages="\n".join(stages))
+        return self.config.docker_base_template.substitute(tool_stages="\n".join(stages))
 
 
 class SetupShBuilder:
-    def __init__(self, tools: dict[str, dict]) -> None:
-        self.tools = tools
+    def __init__(self, config: DevEnvironmentConfig) -> None:
+        self.config = config
+        self.tools = config.conf
 
     def build_tool_function(self, name: str, tool: dict) -> str:
         buf = StringIO()
@@ -151,15 +152,15 @@ class SetupShBuilder:
         )
 
 
-def write_dockerfile(tools: dict[str, dict], output_path: str) -> str:
-    content = DockerfileBuilder(tools).build()
+def write_dockerfile(config: DevEnvironmentConfig, output_path: str) -> str:
+    content = DockerfileBuilder(config).build()
     Path(output_path).write_text(content)
     print(f"Written Dockerfile to {output_path}")
     return content
 
 
-def write_setup_sh(tools: dict[str, dict], output_path: str) -> str:
-    content = SetupShBuilder(tools).build()
+def write_setup_sh(config: DevEnvironmentConfig, output_path: str) -> str:
+    content = SetupShBuilder(config).build()
     Path(output_path).write_text(content)
     print(f"Written setup.sh to {output_path}")
     return content
@@ -168,9 +169,9 @@ def write_setup_sh(tools: dict[str, dict], output_path: str) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--dockerfile", default=f"Dockerfile.{host_arch}", help="Output Dockerfile path"
+        "--dockerfile", help="Output Dockerfile path (auto-generated if not provided)"
     )
-    parser.add_argument("--shell", default=f"setup.{host_arch}.sh", help="Output setup.sh path")
+    parser.add_argument("--shell", help="Output setup.sh path (auto-generated if not provided)")
     parser.add_argument(
         "--mode",
         choices=["docker", "shell", "both"],
@@ -182,14 +183,38 @@ def main():
         choices=["x86_64", "aarch64"],
         help="Target architecture (auto-detected if not specified)"
     )
+    parser.add_argument(
+        "--distro",
+        choices=["rpm", "deb"],
+        default="rpm",
+        help="Target distribution (default: rpm)"
+    )
     args = parser.parse_args()
 
+    # Create configuration with specified distro and architecture
+    # TODO: set base image from args
+    config = DevEnvironmentConfig(distro=args.distro, arch_override=args.arch)
+    
+    actual_arch = config.host_arch
+    print(f"Using architecture: {actual_arch}")
+    print(f"Using distribution: {config.distro}")
+
+    if not args.dockerfile:
+        args.dockerfile = f"Dockerfile.{config.distro}.{actual_arch}"
+    if not args.shell:
+        args.shell = f"setup.{config.distro}.{actual_arch}.sh"
+
+    print(f"Dockerfile: {args.dockerfile}")
+    print(f"Shell script: {args.shell}")
 
     docker_content = setup_content = ""
-    if args.mode in ["docker", "both"]:
-        docker_content = write_dockerfile(conf, args.dockerfile)
-    if args.mode in ["shell", "both"]:
-        setup_content = write_setup_sh(conf, args.shell)
+    if args.mode == "docker":
+        docker_content = write_dockerfile(config, args.dockerfile)
+    elif args.mode == "shell":
+        setup_content = write_setup_sh(config, args.shell)
+    else:
+        write_dockerfile(config, args.dockerfile)
+        write_setup_sh(config, args.shell)
 
     return docker_content, setup_content
 
