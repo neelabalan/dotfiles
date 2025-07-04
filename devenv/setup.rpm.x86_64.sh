@@ -71,7 +71,10 @@ function neovim {
     mkdir -p $(dirname '$HOME/.config/')
     cp nvim/ '$HOME/.config/'
     # Setup for neovim
-    curl -LO https://github.com/neovim/neovim/releases/download/v0.10.3/nvim-linux64.tar.gz && sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux64.tar.gz && sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim && rm nvim-linux64.tar.gz
+    curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-linux-x86_64.tar.gz && \
+        sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz && \
+        sudo ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim && \
+        rm nvim-linux-x86_64.tar.gz
 }
 
 function go {
@@ -106,6 +109,12 @@ function cleanup {
 }
 
 
+
+function install_deps() {
+    echo "Installing base dependencies..."
+    # This function can be customized to install any base dependencies
+    # that are needed before running the individual tool functions
+}
 
 if [ "$1" == "--install" ]; then
     shift

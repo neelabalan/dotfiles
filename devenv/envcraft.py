@@ -184,15 +184,6 @@ def main():
     )
     args = parser.parse_args()
 
-    # Update architecture if specified
-    if args.arch:
-        from config import set_architecture
-        set_architecture(args.arch)
-        # Update default filenames if they weren't explicitly provided
-        if args.dockerfile == f"Dockerfile.{host_arch}":
-            args.dockerfile = f"Dockerfile.{args.arch}"
-        if args.shell == f"setup.{host_arch}.sh":
-            args.shell = f"setup.{args.arch}.sh"
 
     docker_content = setup_content = ""
     if args.mode in ["docker", "both"]:

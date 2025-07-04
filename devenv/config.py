@@ -37,7 +37,6 @@ arch_mappings = {
 }
 
 def set_architecture(arch_override=None):
-    """Set the target architecture. If None, uses auto-detected architecture."""
     global host_arch, current_arch_map
     if arch_override:
         host_arch = arch_override
@@ -47,7 +46,7 @@ def set_architecture(arch_override=None):
     return host_arch
 
 # Initialize with auto-detected architecture
-host_arch = set_architecture()
+host_arch = set_architecture("x86_64")
 
 GO_VERSION = "go1.23.9"
 
