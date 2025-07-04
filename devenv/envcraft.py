@@ -4,7 +4,7 @@ import argparse
 from io import StringIO
 from pathlib import Path
 
-from config import conf
+from config import conf, host_arch
 from config import docker_base_template
 
 SETUP_SH_BASE = string.Template(
@@ -19,6 +19,12 @@ $main_cli
 
 
 MAIN_CLI = """
+function install_deps() {
+    echo "Installing base dependencies..."
+    # This function can be customized to install any base dependencies
+    # that are needed before running the individual tool functions
+}
+
 if [ \"$1\" == \"--install\" ]; then
     shift
     install_deps
@@ -162,16 +168,31 @@ def write_setup_sh(tools: dict[str, dict], output_path: str) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--dockerfile", default="Dockerfile.generated", help="Output Dockerfile path"
+        "--dockerfile", default=f"Dockerfile.{host_arch}", help="Output Dockerfile path"
     )
-    parser.add_argument("--shell", default="setup.sh", help="Output setup.sh path")
+    parser.add_argument("--shell", default=f"setup.{host_arch}.sh", help="Output setup.sh path")
     parser.add_argument(
         "--mode",
         choices=["docker", "shell", "both"],
         default="both",
         help="What to generate",
     )
+    parser.add_argument(
+        "--arch", 
+        choices=["x86_64", "aarch64"],
+        help="Target architecture (auto-detected if not specified)"
+    )
     args = parser.parse_args()
+
+    # Update architecture if specified
+    if args.arch:
+        from config import set_architecture
+        set_architecture(args.arch)
+        # Update default filenames if they weren't explicitly provided
+        if args.dockerfile == f"Dockerfile.{host_arch}":
+            args.dockerfile = f"Dockerfile.{args.arch}"
+        if args.shell == f"setup.{host_arch}.sh":
+            args.shell = f"setup.{args.arch}.sh"
 
     docker_content = setup_content = ""
     if args.mode in ["docker", "both"]:

@@ -1,4 +1,5 @@
 import string
+import platform
 
 
 class DockerfileTemplate(string.Template):
@@ -7,7 +8,46 @@ class DockerfileTemplate(string.Template):
 
 # change directly here
 distro = "rpm"
-arch = "x86"
+arch = "x86"  # Can be overridden by auto-detection
+
+# Auto-detect architecture if running on the host
+def get_platform_arch():
+    machine = platform.machine().lower()
+    if machine in ['x86_64', 'amd64']:
+        return 'x86_64'
+    elif machine in ['aarch64', 'arm64']:
+        return 'aarch64'
+    else:
+        return machine
+
+# Architecture-specific mappings
+arch_mappings = {
+    'x86_64': {
+        'go_arch': 'amd64',
+        'kubectl_arch': 'amd64',
+        'eza_target': 'x86_64-unknown-linux-gnu',
+        'nvim_arch': 'x86_64'
+    },
+    'aarch64': {
+        'go_arch': 'arm64',
+        'kubectl_arch': 'arm64',
+        'eza_target': 'aarch64-unknown-linux-gnu',
+        'nvim_arch': 'arm64'
+    }
+}
+
+def set_architecture(arch_override=None):
+    """Set the target architecture. If None, uses auto-detected architecture."""
+    global host_arch, current_arch_map
+    if arch_override:
+        host_arch = arch_override
+    else:
+        host_arch = get_platform_arch()
+    current_arch_map = arch_mappings.get(host_arch, arch_mappings['x86_64'])
+    return host_arch
+
+# Initialize with auto-detected architecture
+host_arch = set_architecture()
 
 GO_VERSION = "go1.23.9"
 
@@ -132,7 +172,7 @@ PNPM_VERSION = "9.15.9"
 KUBECTL_VERSION = "v1.33.1"
 NVM_VERSION = "v0.39.2"
 EZA_VERSION = "v0.21.1"
-NEOVIM_VERSION = "0.10.3"
+NEOVIM_VERSION = "0.11.0"
 
 conf = {
     "init": {
@@ -168,9 +208,9 @@ conf = {
         "prepare": [tar_install],
         "setup": tool_setup
         + [
-            f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{EZA_VERSION}/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
+            f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{EZA_VERSION}/eza_{current_arch_map['eza_target']}.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
             uv tool install --python 3.11 ipython && \\
-            curl -LO 'https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/amd64/kubectl' && \\
+            curl -LO 'https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/{current_arch_map['kubectl_arch']}/kubectl' && \\
             sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
         ],
     },
@@ -187,16 +227,19 @@ conf = {
     "neovim": {
         "prepare": [curl_install],
         "setup": [
-            f"curl -LO https://github.com/neovim/neovim/releases/download/v{NEOVIM_VERSION}/nvim-linux64.tar.gz && sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux64.tar.gz && sudo ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim && rm nvim-linux64.tar.gz"
+            f"""curl -LO https://github.com/neovim/neovim/releases/download/v{NEOVIM_VERSION}/nvim-linux-{current_arch_map['nvim_arch']}.tar.gz && \\
+                sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{current_arch_map['nvim_arch']}.tar.gz && \\
+                sudo ln -sf /opt/nvim-linux-{current_arch_map['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
+                rm nvim-linux-{current_arch_map['nvim_arch']}.tar.gz"""
         ],
         "copy": [{"source": "nvim/", "destination": "$HOME/.config/"}],
     },
     "go": {
         "prepare": [curl_install],
         "setup": [
-            f"""curl -LO https://go.dev/dl/{GO_VERSION}.linux-amd64.tar.gz && \\
-            sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {GO_VERSION}.linux-amd64.tar.gz && \\
-            rm {GO_VERSION}.linux-amd64.tar.gz && \\
+            f"""curl -LO https://go.dev/dl/{GO_VERSION}.linux-{current_arch_map['go_arch']}.tar.gz && \\
+            sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {GO_VERSION}.linux-{current_arch_map['go_arch']}.tar.gz && \\
+            rm {GO_VERSION}.linux-{current_arch_map['go_arch']}.tar.gz && \\
             echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \\
             source $HOME/.bashrc""",
         ],
