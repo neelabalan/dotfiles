@@ -162,7 +162,8 @@ title()
     PS1=${ORIG}${TITLE}
 }
 
-[ -f ~/.fzf.bash ] && source ~/.fzf.bash
+# Set up fzf key bindings and fuzzy completion
+eval "$(fzf --bash)"
 
 #. "$HOME/.cargo/env"
 
