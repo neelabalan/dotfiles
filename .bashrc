@@ -13,7 +13,6 @@ export LS_COLORS="*.*=0:di=34"
 
 export PATH=$PATH:~/.scripts/
 export PATH=$PATH:~/.local/bin/
-export PATH=$PATH:~/.poetry/bin/
 export PATH=$PATH:~/.local/go/bin/
 export CHEATCOLORS=true
 export LIBVA_DRIVER_NAME=i965
@@ -64,7 +63,6 @@ alias gw='git worktree'
 alias cls='printf "\033[2J\033[H\033[3J"'
 alias python='python3'
 alias randname='python3 ~/.scripts/namesgenerator.py'
-alias zone='python3 ~/.dotfiles/.scripts/zone.py'
 alias dotsync='rsync -avzPR $(cat $HOME/.dotfiles/.dotlist) $HOME/.dotfiles/'
 #alias clk='kitty -o font_size=20 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y &'
 alias man='man "$1" | vim -'
@@ -76,6 +74,46 @@ alias ll='eza -alF'
 alias ls='eza'
 alias svim='sudo vim'
 
+# Function to search GitHub for a commit hash or pull requests
+searchcommit() {
+    local SEARCH_TYPE="commits"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pr)
+                SEARCH_TYPE="pullrequests"
+                shift
+                ;;
+            --cm)
+                SEARCH_TYPE="commits"
+                shift
+                ;;
+            *)
+                COMMIT_HASH="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$COMMIT_HASH" ]; then
+        echo "Usage: searchcommit [--pr|--cm] <commit-hash>"
+        return 1
+    fi
+
+    local SEARCH_URL="https://github.com/search?q=${COMMIT_HASH}&type=${SEARCH_TYPE}"
+
+    if command -v xdg-open > /dev/null; then
+        # Linux
+        xdg-open "$SEARCH_URL"
+    elif command -v open > /dev/null; then
+        # macOS
+        open "$SEARCH_URL"
+    else
+        echo "Could not detect the command to open a browser."
+        echo "Please copy and paste this URL into your browser: $SEARCH_URL"
+        return 2
+    fi
+}
 vman() 
 {
     if [ $# -eq 0 ]; then
@@ -165,7 +203,15 @@ title()
 # Set up fzf key bindings and fuzzy completion
 eval "$(fzf --bash)"
 
-#. "$HOME/.cargo/env"
+code () { 
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        VSCODE_CWD="$PWD" open -n -b "com.microsoft.VSCode" --args $*
+    else
+        # Linux and other systems
+        command code $*
+    fi
+}
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
