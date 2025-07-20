@@ -244,7 +244,7 @@ class DevEnvironmentConfig:
                         sudo ln -sf /opt/nvim-linux-{arch_map['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
                         rm nvim-linux-{arch_map['nvim_arch']}.tar.gz"""
                 ],
-                "copy": [{"source": "nvim/", "destination": "$HOME/.config/"}],
+                "copy": [{"source": "nvim/", "destination": "$HOME/.config/nvim/"}],
             },
             "go": {
                 "prepare": [distro_config['curl_install']],

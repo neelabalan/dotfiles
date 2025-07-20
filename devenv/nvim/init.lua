@@ -1,7 +1,3 @@
--- Basic Neovim configuration (init.lua equivalent in init.vim)
--- Using Neovim's native package management
-
-lua << EOF
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
@@ -62,5 +58,3 @@ vim.opt.tabstop = 4
 vim.opt.clipboard = "unnamedplus"
 vim.opt.termguicolors = true
 vim.opt.mouse = "a"
-
-EOF
