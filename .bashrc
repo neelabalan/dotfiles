@@ -14,6 +14,9 @@ export LS_COLORS="*.*=0:di=34"
 export PATH=$PATH:~/.scripts/
 export PATH=$PATH:~/.local/bin/
 export PATH=$PATH:~/.local/go/bin/
+export PATH=$PATH:~/.poetry/bin/
+export PATH=$PATH:/usr/local/go/bin
+export PATH=$PATH:$HOME/.cargo/bin
 export CHEATCOLORS=true
 export LIBVA_DRIVER_NAME=i965
 bind '"\e[A": history-search-backward'
@@ -42,11 +45,8 @@ fi
 # update the values of LINES and COLUMNS.
 shopt -s checkwinsize
 
-/usr/bin/setxkbmap -option "ctrl:swapcaps"
-# xmodmap -e "keycode 23 = Alt_L"
-# xmodmap -e "keycode 64 = grave asciitilde"
-# xmodmap -e "keycode 49 = Tab"
-# end 
+# /usr/bin/setxkbmap -option "ctrl:swapcaps"
+
 
 case "$TERM" in
     xterm-color|*-256color) color_prompt=yes;;
@@ -73,6 +73,12 @@ alias fd='fdfind'
 alias ll='eza -alF'
 alias ls='eza'
 alias svim='sudo vim'
+alias clk='kitty -o font_size=20 -e tty-clock -s -c -C 4 -t -f %d-%m-%Y &'
+alias pn='pnpm'
+alias k='kubectl'
+alias yz='yazi'
+alias sbrc='source ~/.bashrc'
+alias vbrc='vi ~/.bashrc'
 
 # Function to search GitHub for a commit hash or pull requests
 searchcommit() {
@@ -201,6 +207,7 @@ title()
 }
 
 # Set up fzf key bindings and fuzzy completion
+[ -f ~/.fzf.bash ] && source ~/.fzf.bash
 eval "$(fzf --bash)"
 
 code () { 

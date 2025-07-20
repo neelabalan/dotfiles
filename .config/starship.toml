@@ -11,3 +11,6 @@ disabled = false
 [directory]
 style = "bold green"
 truncate_to_repo = false
+
+[container]
+disabled=true
