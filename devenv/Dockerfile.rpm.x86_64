@@ -68,7 +68,7 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
 RUN sudo dnf install -y tar
 
 # Setup for tools
-RUN sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip
+RUN sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip tokei
 RUN mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \
     uv tool install --python 3.11 ipython && \
     curl -LO 'https://dl.k8s.io/release/v1.33.1/bin/linux/amd64/kubectl' && \
@@ -101,7 +101,7 @@ RUN curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-lin
     rm nvim-linux-x86_64.tar.gz
 
 # File copy for neovim
-COPY --chown=$USERNAME:$USERNAME nvim/ $HOME/.config/
+COPY --chown=$USERNAME:$USERNAME nvim/ $HOME/.config/nvim/
 
 # Stage: go
 # Setting Env for go
