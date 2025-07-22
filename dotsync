@@ -1,0 +1,203 @@
+#!/usr/bin/env python
+
+# python3.10+
+import argparse
+import shutil
+import sys
+import datetime
+import pathlib
+
+PROFILES: dict[str, list[str]] = {
+    "linux-base": [
+        ".bashrc",
+        ".inputrc",
+        ".tmux.conf",
+        ".scripts",
+        ".Xresources",
+        ".config/starship.toml",
+    ],
+    "macos": [
+        ".bashrc",
+        ".inputrc",
+        ".tmux.conf",
+        ".vimrc",
+        ".scripts",
+        ".vim",
+        ".bash_profile",
+        ".config/starship.toml",
+    ],
+    "docker": [
+        ".bashrc",
+        ".inputrc",
+        ".config/starship.toml",
+    ],
+}
+
+
+class DotfilesManager:
+    def __init__(self, dotfiles_dir: pathlib.Path) -> None:
+        self.dotfiles_dir = dotfiles_dir
+        self.home_dir = pathlib.Path.home()
+        self.backup_dir = (
+            self.home_dir
+            / f".dotfiles-backup-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        )
+
+    def get_profile(self, profile_name: str) -> list[str]:
+        if profile_name not in PROFILES:
+            available = ", ".join(PROFILES.keys())
+            print(
+                f"Profile '{profile_name}' not found. Available profiles: {available}"
+            )
+            sys.exit(1)
+        return PROFILES[profile_name]
+
+    def expand_path(self, path_str: str) -> pathlib.Path:
+        if path_str.startswith("~/"):
+            return self.home_dir / path_str[2:]
+        return pathlib.Path(path_str)
+
+    def create_symlink(self, source: pathlib.Path, target: pathlib.Path) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if target.exists() and not target.is_symlink():
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = self.backup_dir / target.name
+            print(f"Backing up existing {target} to {backup_path}")
+            shutil.move(str(target), str(backup_path))
+        elif target.is_symlink():
+            target.unlink()
+
+        target.symlink_to(source)
+        print(f"Created symlink: {target} -> {source}")
+
+    def install(self, profile_name: str) -> None:
+        files = self.get_profile(profile_name)
+
+        print(f"Installing dotfiles for profile '{profile_name}'")
+
+        for file_path in files:
+            source = self.dotfiles_dir / file_path
+            target = self.home_dir / file_path
+
+            if not source.exists():
+                print(f"Source file doesn't exist: {source}")
+                continue
+
+            try:
+                self.create_symlink(source, target)
+            except Exception as e:
+                print(f"Error creating symlink for {file_path}: {e}")
+
+        print("Dotfiles installation complete!")
+        if self.backup_dir.exists():
+            print(f"Backups saved to: {self.backup_dir}")
+
+    def backup(self, profile_name: str) -> None:
+        files = self.get_profile(profile_name)
+
+        print(f"Backing up dotfiles for profile '{profile_name}'")
+
+        for file_path in files:
+            source = self.dotfiles_dir / file_path
+            target = self.home_dir / file_path
+
+            if target.exists() and not target.is_symlink():
+                source.parent.mkdir(parents=True, exist_ok=True)
+
+                if target.is_dir():
+                    if source.exists():
+                        shutil.rmtree(source)
+                    shutil.copytree(target, source)
+                else:
+                    shutil.copy2(target, source)
+                print(f"Backed up: {target} -> {source}")
+            elif target.is_symlink():
+                print(f"Skipping symlink: {target}")
+            else:
+                print(f"Source doesn't exist: {target}")
+
+        print("Backup complete!")
+
+    def status(self, profile_name: str) -> None:
+        files = self.get_profile(profile_name)
+
+        print(f"Dotfiles status for profile '{profile_name}':")
+        print()
+
+        for file_path in files:
+            source = self.dotfiles_dir / file_path
+            target = self.home_dir / file_path
+
+            status_line = f"{file_path:<40} -> {target.name:<40} "
+
+            if target.is_symlink():
+                try:
+                    link_target = target.readlink()
+                    if link_target == source:
+                        status_line += "linked"
+                    else:
+                        status_line += "linked to wrong target"
+                except Exception:
+                    status_line += "broken symlink"
+            elif target.exists():
+                status_line += "exists (not linked)"
+            elif source.exists():
+                status_line += "not installed"
+            else:
+                status_line += "missing source"
+
+            print(status_line)
+
+    def list_profiles(self) -> None:
+        print("Available profiles:")
+        for name, files in PROFILES.items():
+            print(f"  {name} ({len(files)} files)")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="A dotfiles management tool")
+    parser.add_argument(
+        "command",
+        choices=["install", "backup", "status", "list"],
+        help="Command to execute",
+    )
+    parser.add_argument(
+        "dir",
+        type=pathlib.Path,
+        help="Path to the dotfiles directory",
+    )
+    parser.add_argument(
+        "-p", "--profile", help="Profile to use (required for install/backup/status)"
+    )
+
+    args = parser.parse_args()
+
+    # Validate dotfiles directory exists
+    if not args.dotfiles_dir.exists():
+        print(f"Dotfiles directory does not exist: {args.dotfiles_dir}")
+        sys.exit(1)
+    
+    if not args.dotfiles_dir.is_dir():
+        print(f"Dotfiles path is not a directory: {args.dotfiles_dir}")
+        sys.exit(1)
+
+    manager = DotfilesManager(args.dir)
+
+    if args.command == "list":
+        manager.list_profiles()
+    elif args.command in ["install", "backup", "status"]:
+        if not args.profile:
+            print("Profile required for this command")
+            sys.exit(1)
+
+        if args.command == "install":
+            manager.install(args.profile)
+        elif args.command == "backup":
+            manager.backup(args.profile)
+        elif args.command == "status":
+            manager.status(args.profile)
+
+
+if __name__ == "__main__":
+    main()
