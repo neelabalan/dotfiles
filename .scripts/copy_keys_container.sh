@@ -1,0 +1,20 @@
+#!/bin/bash
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    echo "Usage: $0 <container_name_or_id> [username]"
+    exit 1
+fi
+
+CONTAINER="$1"
+USERNAME="${2:-blue}"
+SSH_DIR="/home/$USERNAME/.ssh"
+
+echo "Ensuring .ssh directory exists and is owned by $USERNAME in container $CONTAINER..."
+docker exec -u root "$CONTAINER" bash -c "mkdir -p $SSH_DIR && chown $USERNAME:$USERNAME $SSH_DIR"
+
+echo "Copying host SSH keys to container..."
+docker cp "$HOME/.ssh/." "$CONTAINER:$SSH_DIR"
+
+docker exec -u root "$CONTAINER" bash -c "chown -R $USERNAME:$USERNAME $SSH_DIR && chmod 700 $SSH_DIR && chmod 600 $SSH_DIR/id_* 2>/dev/null || true"
+
+echo "SSH keys copied and permissions set for container $CONTAINER (user: $USERNAME)."
