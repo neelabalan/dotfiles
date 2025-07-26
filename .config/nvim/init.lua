@@ -182,6 +182,10 @@ vim.opt.mouse = "a"
 vim.opt.guicursor = "n-v-c-i:block"
 vim.opt.showmode = false
 
--- Additional indentation configuration
-vim.opt.smarttab = true
-vim.opt.breakindent = true
+-- Python indentation configuration using official Neovim method
+vim.g.python_indent = {
+  open_paren = 'shiftwidth()',      -- 4 spaces after open paren (instead of default 8)
+  nested_paren = 'shiftwidth()',    -- 4 spaces for nested parens
+  continue = 'shiftwidth()',        -- 4 spaces for continuation lines (instead of default 8)
+  closed_paren_align_last_line = false, -- Align closing paren with opening line
+}

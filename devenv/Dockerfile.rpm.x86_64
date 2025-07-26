@@ -44,7 +44,7 @@ RUN sudo dnf install -y curl --skip-broken
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config
 
 # File copy for starship
-COPY --chown=$USERNAME:$USERNAME starship.toml $HOME/.config/
+COPY --chown=$USERNAME:$USERNAME .config/starship.toml $HOME/.config/
 
 # Stage: node
 # Preparation for node
@@ -101,7 +101,7 @@ RUN curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-lin
     rm nvim-linux-x86_64.tar.gz
 
 # File copy for neovim
-COPY --chown=$USERNAME:$USERNAME nvim/ $HOME/.config/nvim/
+COPY --chown=$USERNAME:$USERNAME .config/nvim/ $HOME/.config/nvim/
 
 # Stage: go
 # Setting Env for go
