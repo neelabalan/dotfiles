@@ -1,4 +1,3 @@
-
 eval "$(starship init bash)"
 
 set -o vi
@@ -79,6 +78,7 @@ alias k='kubectl'
 alias yz='yazi'
 alias sbrc='source ~/.bashrc'
 alias vbrc='vi ~/.bashrc'
+alias open='command -v open >/dev/null 2>&1 && open "$@" || command -v start >/dev/null 2>&1 && start "$@" || echo "No open command found"'
 
 # Function to search GitHub for a commit hash or pull requests
 searchcommit() {
