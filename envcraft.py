@@ -86,7 +86,7 @@ class DevEnvironmentConfig:
             'base_image': "debian:bookworm",
             'curl_install': "sudo apt install -y curl",
             'tar_install': "sudo apt install -y tar",
-            'tool_setup': ["sudo apt install -y ranger fzf ripgrep wget ncdu unzip tokei"],
+            'tool_setup': ["sudo apt install -y ranger fzf ripgrep wget ncdu unzip tokei tmux"],
             'ssh_setup': "sudo apt install -y openssh-server",
             'optional_packages': "sudo apt install -y procps iproute2",
             'docker_install': textwrap.dedent("""
@@ -110,7 +110,7 @@ class DevEnvironmentConfig:
             'base_image': "almalinux:9",
             'curl_install': "sudo dnf install -y curl --skip-broken",
             'tar_install': "sudo dnf install -y tar",
-            'tool_setup': ["sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip tokei"],
+            'tool_setup': ["sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip tokei tmux"],
             'ssh_setup': "sudo dnf install -y openssh-server",
             'optional_packages': "sudo dnf install -y procps iproute",
             'docker_install': textwrap.dedent("""
