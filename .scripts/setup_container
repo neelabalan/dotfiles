@@ -8,6 +8,8 @@ fi
 CONTAINER="$1"
 USERNAME="${2:-blue}"
 SSH_DIR="/home/$USERNAME/.ssh"
+GITCONFIG_SRC="$HOME/.gitconfig"
+GITCONFIG_DEST="/home/$USERNAME/.gitconfig"
 
 echo "Ensuring .ssh directory exists and is owned by $USERNAME in container $CONTAINER..."
 docker exec -u root "$CONTAINER" bash -c "mkdir -p $SSH_DIR && chown $USERNAME:$USERNAME $SSH_DIR"
@@ -18,3 +20,13 @@ docker cp "$HOME/.ssh/." "$CONTAINER:$SSH_DIR"
 docker exec -u root "$CONTAINER" bash -c "chown -R $USERNAME:$USERNAME $SSH_DIR && chmod 700 $SSH_DIR && chmod 600 $SSH_DIR/id_* 2>/dev/null || true"
 
 echo "SSH keys copied and permissions set for container $CONTAINER (user: $USERNAME)."
+
+# Copy .gitconfig if it exists
+if [ -f "$GITCONFIG_SRC" ]; then
+    echo "Copying .gitconfig to container..."
+    docker cp "$GITCONFIG_SRC" "$CONTAINER:$GITCONFIG_DEST"
+    docker exec -u root "$CONTAINER" bash -c "chown $USERNAME:$USERNAME $GITCONFIG_DEST"
+    echo ".gitconfig copied and ownership set."
+else
+    echo "No .gitconfig found in home directory. Skipping copy."
+fi
