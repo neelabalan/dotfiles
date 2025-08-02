@@ -10,6 +10,7 @@ import string
 import subprocess
 import sys
 import textwrap
+import typing
 
 
 class DockerfileTemplate(string.Template):
@@ -17,7 +18,7 @@ class DockerfileTemplate(string.Template):
 
 
 class DevEnvironmentConfig:
-    def __init__(self, distro="rpm", arch_override=None, username="blue", profile=None):
+    def __init__(self, distro: str = "rpm", arch_override: str | None = None, username: str = "blue", profile: str | None = None) -> None:
         self.distro = distro
         self.username = username
         self.profile = profile
@@ -61,7 +62,7 @@ class DevEnvironmentConfig:
         self.conf = self._generate_conf()
         self.docker_base_template = self._setup_docker_template()
 
-    def _get_platform_arch(self):
+    def _get_platform_arch(self) -> str:
         machine = platform.machine().lower()
         if machine in ["x86_64", "amd64"]:
             return "x86_64"
@@ -70,7 +71,7 @@ class DevEnvironmentConfig:
         else:
             return machine
 
-    def set_architecture(self, arch_override):
+    def set_architecture(self, arch_override: str) -> "DevEnvironmentConfig":
         self.host_arch = arch_override
         self.current_arch_map = self.arch_mappings.get(
             self.host_arch, self.arch_mappings["x86_64"]
@@ -78,7 +79,7 @@ class DevEnvironmentConfig:
         self.conf = self._generate_conf()  # Regenerate with new architecture
         return self
 
-    def _setup_distro_config(self):
+    def _setup_distro_config(self) -> None:
         # Debian/Ubuntu configurations
         self.deb_config = {
             "update_cmd": "sudo apt update && sudo apt upgrade -y",
@@ -138,7 +139,7 @@ class DevEnvironmentConfig:
         else:
             raise ValueError(f"Unsupported distro: {self.distro}")
 
-    def _setup_docker_template(self):
+    def _setup_docker_template(self) -> DockerfileTemplate:
         base_template = DockerfileTemplate(
             textwrap.dedent("""
             # NOTE: This Dockerfile is generated. Do not edit manually.
@@ -195,7 +196,7 @@ class DevEnvironmentConfig:
         else:
             raise ValueError(f"Unsupported distro: {self.distro}")
 
-    def _generate_dotfile_config(self):
+    def _generate_dotfile_config(self) -> dict:
         config = {
             "prepare": ["mkdir -p .dotfiles"],
             "copy": [{"source": ".", "destination": ".dotfiles/"}],
@@ -209,7 +210,7 @@ class DevEnvironmentConfig:
 
         return config
 
-    def _generate_conf(self):
+    def _generate_conf(self) -> dict:
         arch_map = self.current_arch_map
         distro_config = self.current_distro_config
 
@@ -246,7 +247,7 @@ class DevEnvironmentConfig:
             },
             "tools": {
                 "prepare": [distro_config["tar_install"]],
-                "setup": distro_config["tool_setup"]
+                "setup": list(distro_config["tool_setup"])
                 + [
                     f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{self.versions["eza"]}/eza_{arch_map["eza_target"]}.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
                     uv tool install --python 3.11 ipython && \\
@@ -352,7 +353,7 @@ class DockerfileBuilder:
     def __init__(self, config: DevEnvironmentConfig) -> None:
         self.config = config
         self.tools = config.conf
-        self._registered_commands = []
+        self._registered_commands: list[str] = []
 
     def build_tool_stage(self, name: str, tool: dict) -> str:
         buf = io.StringIO()
@@ -456,7 +457,7 @@ def write_setup_sh(config: DevEnvironmentConfig, output_path: str) -> str:
 
 
 class DotfilesManager:
-    def __init__(self, dotfiles_dir: pathlib.Path = None):
+    def __init__(self, dotfiles_dir: pathlib.Path | None = None) -> None:
         self.dotfiles_dir = dotfiles_dir or pathlib.Path.cwd()
         self.home_dir = pathlib.Path.home()
         self.backup_dir = (
@@ -478,7 +479,7 @@ class DotfilesManager:
         target.symlink_to(source)
         print(f"created symlink: {target} -> {source}")
 
-    def install_dotfiles(self, files: list[str], source_dir: str = None):
+    def install_dotfiles(self, files: list[str], source_dir: str | None = None) -> None:
         if source_dir:
             source_base = pathlib.Path(source_dir).expanduser().resolve()
         else:
@@ -500,7 +501,7 @@ class DotfilesManager:
                 print(f"error creating symlink for {file_path}: {e}")
 
 
-def build_dockerfile(profile_data: dict, distro: str = "rpm", arch_override: str = None, profile_name: str = None, output_path: str = None) -> str:
+def build_dockerfile(profile_data: dict, distro: str = "rpm", arch_override: str | None = None, profile_name: str | None = None, output_path: str | None = None) -> str:
     docker_config = profile_data.get("docker", {})
     base_image = docker_config.get("base_image")
     container_user = docker_config.get("container_user", "blue")
@@ -547,7 +548,7 @@ def build_dockerfile(profile_data: dict, distro: str = "rpm", arch_override: str
         arch = dev_config.host_arch
         distro = dev_config.distro
 
-        output_path = devenv_dir / f"Dockerfile.{profile_name_for_file}.{distro}.{arch}"
+        output_path = str(devenv_dir / f"Dockerfile.{profile_name_for_file}.{distro}.{arch}")
 
     pathlib.Path(output_path).write_text(dockerfile_content)
     print(f"written Dockerfile to {output_path}")
@@ -555,7 +556,7 @@ def build_dockerfile(profile_data: dict, distro: str = "rpm", arch_override: str
     return dockerfile_content
 
 
-def run_container(profile_data: dict, image_name: str, container_name: str = None) -> str:
+def run_container(profile_data: dict, image_name: str, container_name: str | None = None) -> typing.Any:
     if not profile_data.get("docker"):
         raise ValueError("docker configuration not found in profile")
 
@@ -595,7 +596,7 @@ def run_container(profile_data: dict, image_name: str, container_name: str = Non
 
 class ContainerManager:
     @staticmethod
-    def list_containers():
+    def list_containers() -> None:
         result = subprocess.run(
             [
                 "docker",
@@ -617,7 +618,7 @@ class ContainerManager:
             print("error listing containers:", result.stderr)
 
     @staticmethod
-    def delete_container(name: str, delete_volumes: bool = False):
+    def delete_container(name: str, delete_volumes: bool = False) -> None:
         subprocess.run(["docker", "stop", name], capture_output=True)
 
         result = subprocess.run(["docker", "rm", name], capture_output=True, text=True)
@@ -653,7 +654,7 @@ class ContainerManager:
             print(f"error deleting container '{name}': {result.stderr}")
 
     @staticmethod
-    def login_container(name: str, shell: str = "/bin/bash"):
+    def login_container(name: str, shell: str = "/bin/bash") -> None:
         result = subprocess.run(["docker", "exec", "-it", name, shell])
         if result.returncode != 0:
             print(f"failed to login to container '{name}'. Make sure it's running.")
@@ -664,7 +665,7 @@ def load_profile_config(config_path: str) -> dict:
         return json.load(f)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="development Environment Manager")
     subparsers = parser.add_subparsers(dest="command", help="available commands")
 
@@ -763,7 +764,7 @@ def main():
                     print(f"Profile file not found: {args.profile}")
                     sys.exit(1)
 
-                profiles = load_profile_config(profile)
+                profiles = load_profile_config(str(profile))
                 if args.profile_name not in profiles:
                     print(f"Profile '{args.profile_name}' not found in {args.profile}")
                     print(f"Available profiles: {list(profiles.keys())}")
