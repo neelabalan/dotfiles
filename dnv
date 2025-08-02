@@ -35,6 +35,7 @@ class DevEnvironmentConfig:
             "tools": [
                 "init",
                 "python",
+                "dotfiles",
                 "node",
                 "rust",
                 "go",
@@ -45,7 +46,7 @@ class DevEnvironmentConfig:
                 "ssh",
                 "docker",
             ],
-            "dotfiles": [".bashrc", ".vimrc", ".gitconfig", ".tmux.conf"],
+            "dotfiles": [".bashrc", ".config/starship.toml", ".config/nvim", ".tmux.conf"],
         },
         "dev-python-minimal": {
             "name": "dev-python-minimal",
@@ -138,7 +139,6 @@ class DevEnvironmentConfig:
             },
         }
 
-        # set architecture
         self.host_arch = (
             self._get_platform_arch() if arch_override is None else arch_override
         )
@@ -163,16 +163,14 @@ class DevEnvironmentConfig:
         self.current_arch_map = self.arch_mappings.get(
             self.host_arch, self.arch_mappings["x86_64"]
         )
-        self.conf = self._generate_conf()  # Regenerate with new architecture
+        self.conf = self._generate_conf()
         return self
 
     def _setup_distro_config(self) -> None:
-        # Get profile data if available
         profile_data = {}
         if self.profile and self.profile in self.PROFILES:
             profile_data = self.PROFILES[self.profile]
 
-        # Override base image from profile if specified
         docker_config = profile_data.get("docker", {})
         base_image = docker_config.get("base_image")
 
@@ -244,7 +242,7 @@ class DevEnvironmentConfig:
         if self.profile:
             config["setup"] = [
                 "ls ~/.dotfiles/",
-                f"uvx python3.11 ~/.dotfiles/envcraft.py dotsync install --source-dir=~/.dotfiles/ --profile-name={self.profile}",
+                f"uvx python3.11 ~/.dotfiles/dnv dotsync install --source-dir=~/.dotfiles/ --profile={self.profile}",
             ]
 
         return config
