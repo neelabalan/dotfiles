@@ -1,0 +1,1052 @@
+#! /usr/bin/python3
+import argparse
+import datetime
+import io
+import pathlib
+import platform
+import shlex
+import shutil
+import string
+import subprocess
+import sys
+import textwrap
+
+
+class DockerfileTemplate(string.Template):
+    delimiter = "<$>"
+
+
+# TODO:
+# - add cpu/mem limits at profile level
+class DevEnvironmentConfig:
+    PROFILES = {
+        "dev-rpm-full": {
+            "name": "dev-rpm-full",
+            "docker": {
+                "distro": "rpm",
+                "base_image": "almalinux:9",
+                "container_user": "blue",
+                "exposed_ports": [8080, 3000, 5000],
+                "volumes": [
+                    {"source": "~/code", "target": "/home/blue/code", "mode": "rw"},
+                    {"source": "~/.ssh", "target": "/home/blue/.ssh", "mode": "ro"},
+                ],
+            },
+            "tools": [
+                "init",
+                "python",
+                "node",
+                "rust",
+                "go",
+                "tools",
+                "neovim",
+                "starship",
+                "dotfiles",
+                "ssh",
+                "docker",
+            ],
+            "dotfiles": [".bashrc", ".vimrc", ".gitconfig", ".tmux.conf"],
+        },
+        "dev-python-minimal": {
+            "name": "dev-python-minimal",
+            "docker": {
+                "distro": "rpm",
+                "container_user": "blue",
+                "exposed_ports": [8000],
+                "volumes": [
+                    {"source": "~/code", "target": "/home/blue/code", "mode": "rw"}
+                ],
+            },
+            "tools": ["init", "python", "tools", "dotfiles"],
+            "dotfiles": [".bashrc", ".gitconfig"],
+        },
+        "ml-development": {
+            "description": "Machine Learning development environment",
+            "docker": {
+                "base_image": "nvidia/cuda:11.8-runtime-ubuntu20.04",
+                "container_user": "developer",
+                "working_directory": "/home/developer/workspace",
+                "exposed_ports": [8888, 6006],
+                "volumes": [
+                    {
+                        "source": "./ml-workspace",
+                        "target": "/home/developer/workspace",
+                        "mode": "rw",
+                    }
+                ],
+            },
+            "dotfiles": [".bashrc", ".vimrc", ".gitconfig"],
+            "tools": ["python", "starship", "tools", "neovim"],
+        },
+    }
+
+    @classmethod
+    def from_profile(
+        cls, profile: str, arch_override: str | None = None
+    ) -> "DevEnvironmentConfig":
+        profile_data = cls.PROFILES.get(profile)
+        if not profile_data:
+            available = list(cls.PROFILES.keys())
+            raise ValueError(
+                f"profile '{profile}' not found. available profiles: {available}"
+            )
+
+        docker_config = profile_data.get("docker", {})
+
+        return cls(
+            distro=docker_config.get("distro", "rpm"),
+            arch_override=arch_override,
+            username=docker_config.get("container_user", "blue"),
+            profile=profile,
+        )
+
+    def __init__(
+        self,
+        distro: str = "rpm",
+        arch_override: str | None = None,
+        username: str = "blue",
+        profile: str | None = None,
+    ) -> None:
+        self.distro = distro
+        self.username = username
+        self.profile = profile
+
+        # Version constants
+        self.versions = {
+            "go": "go1.23.9",
+            "uv": "0.7.9",
+            "pnpm": "9.15.9",
+            "kubectl": "v1.33.1",
+            "nvm": "v0.39.2",
+            "eza": "v0.21.1",
+            "neovim": "0.11.0",
+        }
+
+        # Architecture mappings
+        self.arch_mappings = {
+            "x86_64": {
+                "go_arch": "amd64",
+                "kubectl_arch": "amd64",
+                "eza_target": "x86_64-unknown-linux-gnu",
+                "nvim_arch": "x86_64",
+            },
+            "aarch64": {
+                "go_arch": "arm64",
+                "kubectl_arch": "arm64",
+                "eza_target": "aarch64-unknown-linux-gnu",
+                "nvim_arch": "arm64",
+            },
+        }
+
+        # set architecture
+        self.host_arch = (
+            self._get_platform_arch() if arch_override is None else arch_override
+        )
+        self.current_arch_map = self.arch_mappings.get(
+            self.host_arch, self.arch_mappings["x86_64"]
+        )
+
+        self._setup_distro_config()
+        self.conf = self._generate_conf()
+
+    def _get_platform_arch(self) -> str:
+        machine = platform.machine().lower()
+        if machine in ["x86_64", "amd64"]:
+            return "x86_64"
+        elif machine in ["aarch64", "arm64"]:
+            return "aarch64"
+        else:
+            return machine
+
+    def set_architecture(self, arch_override: str) -> "DevEnvironmentConfig":
+        self.host_arch = arch_override
+        self.current_arch_map = self.arch_mappings.get(
+            self.host_arch, self.arch_mappings["x86_64"]
+        )
+        self.conf = self._generate_conf()  # Regenerate with new architecture
+        return self
+
+    def _setup_distro_config(self) -> None:
+        # Get profile data if available
+        profile_data = {}
+        if self.profile and self.profile in self.PROFILES:
+            profile_data = self.PROFILES[self.profile]
+
+        # Override base image from profile if specified
+        docker_config = profile_data.get("docker", {})
+        base_image = docker_config.get("base_image")
+
+        # Debian/Ubuntu configurations
+        deb_config = {
+            "update_cmd": "sudo apt update && sudo apt upgrade -y",
+            "base_packages": "sudo apt install -y vim curl git build-essential make",
+            "base_image": base_image or "debian:bookworm",
+            "curl_install": "sudo apt install -y curl",
+            "tar_install": "sudo apt install -y tar",
+            "tool_setup": [
+                "sudo apt install -y ranger fzf ripgrep wget ncdu unzip tokei tmux"
+            ],
+            "ssh_setup": "sudo apt install -y openssh-server",
+            "optional_packages": "sudo apt install -y procps iproute2",
+            "docker_install": textwrap.dedent("""
+                sudo install -m 0755 -d /etc/apt/keyrings && \\
+                sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \\
+                sudo chmod a+r /etc/apt/keyrings/docker.asc && \\
+                echo \\
+                  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \\
+                  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \\
+                  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \\
+                sudo apt-get update -y && \\
+                sudo apt-get install docker-ce-cli -y
+                """).strip(),
+            "cleanup": ["sudo apt-get clean", "sudo rm -rf /var/lib/apt/lists/*"],
+        }
+
+        # RHEL/Fedora/AlmaLinux configurations
+        rpm_config = {
+            "update_cmd": "sudo dnf update -y",
+            "base_packages": "sudo dnf install -y vim curl git make gcc --skip-broken",
+            "base_image": base_image or "almalinux:9",
+            "curl_install": "sudo dnf install -y curl --skip-broken",
+            "tar_install": "sudo dnf install -y tar",
+            "tool_setup": [
+                "sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip tokei tmux"
+            ],
+            "ssh_setup": "sudo dnf install -y openssh-server",
+            "optional_packages": "sudo dnf install -y procps iproute",
+            "docker_install": textwrap.dedent("""
+                sudo dnf -y install dnf-plugins-core && \\
+                sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+                sudo dnf install -y docker-ce-cli
+                """).strip(),
+            "cleanup": [
+                """sudo dnf clean all && \\
+                sudo rm -rf /var/cache/dnf/* && \\
+                sudo rm -rf /usr/share/doc && \\
+                sudo rm -rf /root/.cache""",
+            ],
+        }
+
+        # Set current distro config
+        if self.distro == "deb":
+            self.current_distro_config = deb_config
+        elif self.distro == "rpm":
+            self.current_distro_config = rpm_config
+        else:
+            raise ValueError(f"unsupported distro: {self.distro}")
+
+    def _generate_dotfile_config(self) -> dict:
+        config = {
+            "prepare": ["mkdir -p .dotfiles"],
+            "copy": [{"source": ".", "destination": ".dotfiles/"}],
+        }
+
+        if self.profile:
+            config["setup"] = [
+                "ls ~/.dotfiles/",
+                f"uvx python3.11 ~/.dotfiles/envcraft.py dotsync install --source-dir=~/.dotfiles/ --profile-name={self.profile}",
+            ]
+
+        return config
+
+    def _generate_conf(self) -> dict:
+        arch_map = self.current_arch_map
+        distro_config = self.current_distro_config
+
+        all_tools = {
+            "init": {
+                "setup": [distro_config["base_packages"]],
+            },
+            "python": {
+                "env": [{"PATH": "$HOME/.local/bin:$PATH"}],
+                "setup": [
+                    f"curl -LsSf https://astral.sh/uv/{self.versions['uv']}/install.sh | sh && uv python install 3.11 3.13"
+                ],
+            },
+            "dotfiles": self._generate_dotfile_config(),
+            "starship": {
+                "prepare": [distro_config["curl_install"]],
+                "setup": [
+                    "curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config"
+                ],
+            },
+            "node": {
+                "prepare": [distro_config["curl_install"]],
+                "setup": [
+                    f"""curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{self.versions["nvm"]}/install.sh | bash && \\
+                    export NVM_DIR=$HOME/.nvm && \\
+                    bash -c 'source $NVM_DIR/nvm.sh && nvm install 22'"""
+                ],
+            },
+            "rust": {
+                "setup": [
+                    "curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path"
+                ],
+                "env": [{"PATH": "$PATH:$HOME/.cargo/bin"}],
+            },
+            "tools": {
+                "prepare": [distro_config["tar_install"]],
+                "setup": list(distro_config["tool_setup"])
+                + [
+                    f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{self.versions["eza"]}/eza_{arch_map["eza_target"]}.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
+                    uv tool install --python 3.11 ipython && \\
+                    curl -LO 'https://dl.k8s.io/release/{self.versions["kubectl"]}/bin/linux/{arch_map["kubectl_arch"]}/kubectl' && \\
+                    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
+                ],
+            },
+            "ssh": {
+                "prepare": [distro_config["ssh_setup"]],
+                "setup": [
+                    """sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \\
+                    sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \\
+                    sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config && \\
+                    sudo ssh-keygen -A"""
+                ],
+            },
+            "optional": {"setup": [distro_config["optional_packages"]]},
+            "neovim": {
+                "prepare": [distro_config["curl_install"]],
+                "setup": [
+                    f"""curl -LO https://github.com/neovim/neovim/releases/download/v{self.versions["neovim"]}/nvim-linux-{arch_map["nvim_arch"]}.tar.gz && \\
+                        sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{arch_map["nvim_arch"]}.tar.gz && \\
+                        sudo ln -sf /opt/nvim-linux-{arch_map["nvim_arch"]}/bin/nvim /usr/local/bin/nvim && \\
+                        rm nvim-linux-{arch_map["nvim_arch"]}.tar.gz"""
+                ],
+            },
+            "go": {
+                "prepare": [distro_config["curl_install"]],
+                "setup": [
+                    f"""curl -LO https://go.dev/dl/{self.versions["go"]}.linux-{arch_map["go_arch"]}.tar.gz && \\
+                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {self.versions["go"]}.linux-{arch_map["go_arch"]}.tar.gz && \\
+                    rm {self.versions["go"]}.linux-{arch_map["go_arch"]}.tar.gz && \\
+                    echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \\
+                    source $HOME/.bashrc""",
+                ],
+                "env": [{"PATH": "$PATH:/usr/local/go/bin"}],
+            },
+            "pnpm": {
+                "setup": [
+                    f"curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={self.versions['pnpm']} sh -"
+                ]
+            },
+            "docker": {"setup": [distro_config["docker_install"]]},
+            "cleanup": {"setup": distro_config["cleanup"]},
+        }
+
+        if self.profile and self.profile in self.PROFILES:
+            profile_data = self.PROFILES[self.profile]
+            tools_to_include = profile_data.get("tools")
+            filtered_conf = {}
+            for tool in tools_to_include:
+                if tool in all_tools:
+                    filtered_conf[tool] = all_tools[tool]
+
+            if "init" not in filtered_conf and "init" in all_tools:
+                filtered_conf["init"] = all_tools["init"]
+
+            return filtered_conf
+
+        return all_tools
+
+
+def normalize_indent_after_first_line(s: str, indent: int = 4) -> str:
+    lines = s.splitlines()
+    if not lines:
+        return s
+
+    first_line = lines[0]
+    rest_lines = lines[1:]
+
+    normalized = [first_line]
+    for line in rest_lines:
+        if line.strip() == "":
+            normalized.append("")
+        else:
+            normalized.append(" " * indent + line.lstrip())
+
+    return "\n".join(normalized)
+
+
+class DockerfileBuilder:
+    DOCKERFILE_BASE_TEMPLATE = textwrap.dedent("""
+        # NOTE: This Dockerfile is generated. Do not edit manually.
+        FROM <$>base_image
+        SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+        ENV SHELL /bin/bash
+
+        RUN <$>update && \\
+            <$>install_sudo
+
+        ARG USERNAME=<$>username
+        ARG USER_UID=1000
+        ARG USER_GID=$USER_UID
+
+        RUN groupadd --gid $USER_GID $USERNAME \\
+            && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \\
+            && echo $USERNAME ALL=\\(root\\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \\
+            && chmod 0440 /etc/sudoers.d/$USERNAME
+
+        USER $USERNAME
+
+        WORKDIR <$>workdir
+
+        ENV HOME=<$>workdir
+
+        <$>tool_stages
+
+        # SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data
+        ARG PASSWORD=admin
+        RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
+    """)
+
+    def __init__(self, config: DevEnvironmentConfig) -> None:
+        self.config = config
+        self.tools = config.conf
+        self._registered_commands: list[str] = []
+        self.docker_template = self._setup_docker_template()
+
+    def _setup_docker_template(self) -> DockerfileTemplate:
+        base_template = DockerfileTemplate(
+            textwrap.dedent(self.DOCKERFILE_BASE_TEMPLATE).strip()
+        )
+
+        if self.config.distro == "rpm":
+            return DockerfileTemplate(
+                base_template.safe_substitute(
+                    base_image=self.config.current_distro_config["base_image"],
+                    update="dnf update -y",
+                    install_sudo="dnf install -y sudo",
+                    username=self.config.username,
+                    workdir="/home/$USERNAME",
+                )
+            )
+        elif self.config.distro == "deb":
+            return DockerfileTemplate(
+                base_template.safe_substitute(
+                    base_image=self.config.current_distro_config["base_image"],
+                    update="apt update && apt upgrade -y",
+                    install_sudo="apt install -y sudo",
+                    username=self.config.username,
+                    workdir="/home/$USERNAME",
+                )
+            )
+        else:
+            raise ValueError(f"unsupported distro: {self.config.distro}")
+
+    def build_tool_stage(self, name: str, tool: dict) -> str:
+        buf = io.StringIO()
+        buf.write(f"# stage: {shlex.quote(name)}\n")
+
+        if tool.get("env"):
+            buf.write(f"# setting Env for {name}\n")
+            for cmd in tool["env"]:
+                for key, val in cmd.items():
+                    buf.write(f"ENV {key}={val}\n")
+            buf.write("\n")
+
+        if tool.get("prepare"):
+            buf.write(f"# preparation for {name}\n")
+            for cmd in tool["prepare"]:
+                if cmd in self._registered_commands:
+                    continue
+                self._registered_commands.append(cmd)
+                buf.write(f"RUN {cmd}\n")
+            buf.write("\n")
+
+        if tool.get("copy"):
+            buf.write(f"# file copy for {name}\n")
+            for f in tool["copy"]:
+                buf.write(
+                    f"COPY --chown=$USERNAME:$USERNAME {f['source']} {f['destination']}\n"
+                )
+        if tool.get("setup"):
+            buf.write(f"# setup for {name}\n")
+            for cmd in tool["setup"]:
+                buf.write(f"RUN {normalize_indent_after_first_line(cmd)}\n")
+            buf.write("\n")
+
+        return buf.getvalue()
+
+    def build(self) -> str:
+        stages = []
+        for name, tool in self.tools.items():
+            stages.append(self.build_tool_stage(name, tool))
+        return self.docker_template.substitute(tool_stages="\n".join(stages))
+
+
+class SetupShBuilder:
+    SETUP_SH_BASE_TEMPLATE = textwrap.dedent("""
+        #!/bin/bash
+
+        $tool_functions
+
+        $main_cli
+    """)
+
+    MAIN_CLI = textwrap.dedent("""
+        function install_deps() {
+            echo "Installing base dependencies..."
+            # This function can be customized to install any base dependencies
+            # that are needed before running the individual tool functions
+        }
+
+        if [ \"$1\" == \"--install\" ]; then
+            shift
+            install_deps
+            for tool in \"$@\"; do
+                if declare -f \"$tool\" > /dev/null; then
+                    \"$tool\"
+                else
+                    echo "Error: Unknown tool '$tool'"
+                    exit 1
+                fi
+            done
+        else
+            echo "Usage: $0 --install tool1 tool2 ..."
+            exit 1
+        fi
+    """)
+
+    def __init__(self, config: DevEnvironmentConfig) -> None:
+        self.config = config
+        self.tools = config.conf
+
+    def build_tool_function(self, name: str, tool: dict) -> str:
+        buf = io.StringIO()
+        buf.write(f"function {name} {{\n")
+
+        if tool.get("prepare"):
+            buf.write(f"    # preparation for {name}\n")
+            for cmd in tool["prepare"]:
+                buf.write(f"    {cmd}\n")
+
+        if tool.get("copy"):
+            buf.write(f"    # file copy for {name}\n")
+            for f in tool["copy"]:
+                buf.write(f"    mkdir -p $(dirname {shlex.quote(f['destination'])})\n")
+                buf.write(
+                    f"    cp {shlex.quote(f['source'])} {shlex.quote(f['destination'])}\n"
+                )
+
+        if tool.get("setup"):
+            buf.write(f"    # setup for {name}\n")
+            for cmd in tool["setup"]:
+                buf.write(f"    {normalize_indent_after_first_line(cmd, indent=8)}\n")
+
+        if tool.get("validation"):
+            buf.write(f"    # validation for {name}\n")
+            for check in tool["validation"]:
+                buf.write(f"    {check}\n")
+
+        buf.write("}\n")
+        return buf.getvalue()
+
+    def build(self) -> str:
+        functions = [
+            self.build_tool_function(name, tool) for name, tool in self.tools.items()
+        ]
+        return string.Template(self.SETUP_SH_BASE_TEMPLATE).substitute(
+            tool_functions="\n".join(functions), main_cli=self.MAIN_CLI
+        )
+
+
+def write_dockerfile(config: DevEnvironmentConfig, output_path: str) -> str:
+    content = DockerfileBuilder(config).build()
+    pathlib.Path(output_path).write_text(content)
+    print(f"written dockerfile to {output_path}")
+    return content
+
+
+def write_setup_sh(config: DevEnvironmentConfig, output_path: str) -> str:
+    content = SetupShBuilder(config).build()
+    pathlib.Path(output_path).write_text(content)
+    print(f"written setup.sh to {output_path}")
+    return content
+
+
+class DotfilesManager:
+    def __init__(self, dotfiles_dir: pathlib.Path | None = None) -> None:
+        self.dotfiles_dir = dotfiles_dir or pathlib.Path.cwd()
+        self.home_dir = pathlib.Path.home()
+        self.backup_dir = (
+            self.home_dir
+            / f".dotfiles-backup-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        )
+
+    def create_symlink(self, source: pathlib.Path, target: pathlib.Path) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if target.exists() and not target.is_symlink():
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = self.backup_dir / target.name
+            print(f"backing up existing {target} to {backup_path}")
+            shutil.move(str(target), str(backup_path))
+        elif target.is_symlink():
+            target.unlink()
+
+        target.symlink_to(source)
+        print(f"created symlink: {target} -> {source}")
+
+    def install_dotfiles(self, files: list[str], source_dir: str | None = None) -> None:
+        if source_dir:
+            source_base = pathlib.Path(source_dir).expanduser().resolve()
+        else:
+            source_base = self.dotfiles_dir
+
+        target_base = self.home_dir
+
+        for file_path in files:
+            source = source_base / file_path
+            target = target_base / file_path
+
+            if not source.exists():
+                print(f"source file doesn't exist: {source}")
+                continue
+
+            try:
+                self.create_symlink(source, target)
+            except Exception as e:
+                print(f"error creating symlink for {file_path}: {e}")
+
+
+class ImageBuilder:
+    def __init__(self, name: str, dockerfile_path: pathlib.Path) -> None:
+        self.name = name
+        self.dockerfile_path = dockerfile_path
+
+    @staticmethod
+    def get_image_name(profile: str, config: DevEnvironmentConfig) -> str:
+        return f"envcraft-{profile}-{config.distro}-{config.host_arch}:latest"
+
+    def _image_exists(self, image_name: str) -> bool:
+        return bool(
+            subprocess.run(
+                ["docker", "images", "-q", image_name], capture_output=True, text=True
+            ).stdout.strip()
+        )
+
+    def _dockerfile_is_newer(
+        self, dockerfile_path: pathlib.Path, image_name: str
+    ) -> bool:
+        if not dockerfile_path.exists() or self._image_exists(image_name):
+            return True
+
+        return dockerfile_path.stat().st_mtime > self._get_image_creation_time(
+            image_name
+        )
+
+    def _get_image_creation_time(self, image_name: str) -> float:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.Created}}", image_name],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return 0.0
+
+        try:
+            created_str = result.stdout.strip()
+            created_dt = datetime.datetime.fromisoformat(
+                created_str.replace("Z", "+00:00")
+            )
+            return created_dt.timestamp()
+        except Exception:
+            return 0.0
+
+    def is_built(self) -> bool:
+        return self._image_exists(self.name)
+
+    def needs_rebuild(self) -> bool:
+        return self._dockerfile_is_newer(self.dockerfile_path, self.name)
+
+    def build(self) -> bool:
+        print(f"building image: {self.name}")
+        build_cmd = [
+            "docker",
+            "build",
+            "-t",
+            self.name,
+            "-f",
+            str(self.dockerfile_path),
+            ".",
+        ]
+        print(f"running: {' '.join(build_cmd)}")
+
+        build_result = subprocess.run(build_cmd, capture_output=True, text=True)
+
+        if build_result.returncode != 0:
+            print(f"failed to build image: {build_result.stderr}")
+            return False
+
+        print(f"successfully built image: {self.name}")
+        return True
+
+
+class DevContainerManager:
+    def __init__(self, name: str, image_name: str, config: dict) -> None:
+        self.name = name
+        self.image_name = image_name
+        self.config = config
+        self.container_id: str | None = None
+
+    def is_running(self) -> bool:
+        if not self.container_id:
+            return False
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", self.container_id],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "true"
+
+    def start(self) -> str | None:
+        cmd = ["docker", "run", "-d", "--label", "envcraft=true"]
+
+        if self.name:
+            cmd.extend(
+                ["--name", self.name, "--label", f"envcraft.container={self.name}"]
+            )
+
+        for port in self.config.get("exposed_ports", []):
+            cmd.extend(["-p", f"{port}:{port}"])
+
+        for volume in self.config.get("volumes", []):
+            source = pathlib.Path(volume["source"]).expanduser().resolve()
+            target = volume["target"]
+            mode = volume.get("mode", "rw")
+            cmd.extend(["-v", f"{source}:{target}:{mode}"])
+
+        cmd.append(self.image_name)
+
+        print(f"starting container: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            self.container_id = result.stdout.strip()
+            print(f"container started successfully: {self.container_id}")
+            return self.container_id
+        else:
+            print(f"failed to start container: {result.stderr}")
+            return None
+
+    def stop(self) -> bool:
+        if not self.container_id:
+            return False
+        result = subprocess.run(
+            ["docker", "stop", self.container_id], capture_output=True
+        )
+        return result.returncode == 0
+
+    def remove(self) -> bool:
+        if not self.container_id:
+            return False
+        result = subprocess.run(
+            ["docker", "rm", self.container_id], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            print(f"container '{self.container_id}' removed successfully")
+            return True
+        else:
+            print(f"failed to remove container '{self.container_id}': {result.stderr}")
+            return False
+
+    def exec_command(self, command: list[str]) -> subprocess.CompletedProcess:
+        if not self.container_id:
+            raise RuntimeError("container not started")
+        return subprocess.run(["docker", "exec", "-it", self.container_id] + command)
+
+    def is_healthy(self) -> bool:
+        return self.is_running()
+
+    def get_logs(self) -> str:
+        result = subprocess.run(
+            ["docker", "logs", self.container_id], capture_output=True, text=True
+        )
+        return result.stdout if result.returncode == 0 else ""
+
+    def exec_shell(self, shell: str = "/bin/bash") -> None:
+        result = subprocess.run(["docker", "exec", "-it", self.container_id, shell])
+        if result.returncode != 0:
+            print(
+                f"failed to login to container '{self.container_id}'. make sure it's running."
+            )
+
+    def remove_volumes(self, container_name: str) -> bool:
+        volume_result = subprocess.run(
+            [
+                "docker",
+                "volume",
+                "ls",
+                "--filter",
+                f"label=envcraft.container={container_name}",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        if volume_result.stdout.strip():
+            volumes = volume_result.stdout.strip().split("\n")
+            for volume in volumes:
+                vol_del_result = subprocess.run(
+                    ["docker", "volume", "rm", volume], capture_output=True
+                )
+                if vol_del_result.returncode == 0:
+                    print(f"volume '{volume}' removed")
+                else:
+                    print(f"failed to remove volume '{volume}'")
+            return True
+        return False
+
+    def list_deployments(self) -> list[dict]:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "label=envcraft=true",
+                "--format",
+                "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0:
+            print("envCraft deployments:")
+            print(result.stdout)
+            return []  # Return empty for now, could parse the output if needed
+        else:
+            print("error listing deployments:", result.stderr)
+            return []
+
+
+class CommandHandler:
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+
+    def handle_spin(self) -> None:
+        if self.args.profile not in DevEnvironmentConfig.PROFILES:
+            available = list(DevEnvironmentConfig.PROFILES.keys())
+            print(
+                f"profile '{self.args.profile}' not found. available profiles: {available}"
+            )
+            sys.exit(1)
+
+        config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
+        profile_data = DevEnvironmentConfig.PROFILES[self.args.profile]
+
+        image_name = ImageBuilder.get_image_name(self.args.profile, config)
+        dockerfile_path = get_dockerfile_path(self.args.profile, config)
+
+        image_builder = ImageBuilder(image_name, dockerfile_path)
+        if not image_builder.is_built() or image_builder.needs_rebuild():
+            if image_builder.is_built():
+                print("dockerfile is newer than existing image, rebuilding...")
+            else:
+                print(f"image {image_name} not found, building...")
+
+            builder = DockerfileBuilder(config)
+            dockerfile_content = builder.build()
+            dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
+            dockerfile_path.write_text(dockerfile_content)
+
+            if not image_builder.build():
+                print("failed to build image")
+                sys.exit(1)
+        else:
+            print(f"using existing image: {image_name}")
+
+        docker_config = profile_data.get("docker", {})
+        container_manager = DevContainerManager(
+            self.args.name, image_name, docker_config
+        )
+
+        container_id = container_manager.start()
+        if not container_id:
+            print("failed to start container")
+            sys.exit(1)
+
+        print(
+            f"environment '{self.args.name or container_id}' is running: {container_id}"
+        )
+
+    def handle_build(self) -> None:
+        if self.args.profile not in DevEnvironmentConfig.PROFILES:
+            available = list(DevEnvironmentConfig.PROFILES.keys())
+            print(
+                f"profile '{self.args.profile}' not found. available profiles: {available}"
+            )
+            sys.exit(1)
+
+        config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
+
+        image_name = ImageBuilder.get_image_name(self.args.profile, config)
+        dockerfile_path = get_dockerfile_path(self.args.profile, config)
+
+        builder = DockerfileBuilder(config)
+        dockerfile_content = builder.build()
+        dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
+        dockerfile_path.write_text(dockerfile_content)
+
+        image_builder = ImageBuilder(image_name, dockerfile_path)
+        if not image_builder.build():
+            print("failed to build image")
+            sys.exit(1)
+
+        print(f"image '{image_name}' built successfully")
+
+    def handle_craft(self) -> None:
+        if self.args.profile not in DevEnvironmentConfig.PROFILES:
+            available = list(DevEnvironmentConfig.PROFILES.keys())
+            print(
+                f"profile '{self.args.profile}' not found. available profiles: {available}"
+            )
+            sys.exit(1)
+
+        dev_config = DevEnvironmentConfig.from_profile(
+            self.args.profile, self.args.arch
+        )
+
+        if self.args.output:
+            output_path = self.args.output
+        else:
+            devenv_dir = pathlib.Path.home() / ".devenv"
+            devenv_dir.mkdir(exist_ok=True)
+            profile_for_file = dev_config.profile or "default"
+            arch = dev_config.host_arch
+            distro = dev_config.distro
+            output_path = str(
+                devenv_dir / f"Dockerfile.{profile_for_file}.{distro}.{arch}"
+            )
+
+        write_dockerfile(dev_config, output_path)
+
+    def handle_ls(self) -> None:
+        manager = DevContainerManager("", "", {})
+        manager.list_deployments()
+
+    def handle_rm(self) -> None:
+        manager = DevContainerManager(self.args.name, "", {})
+        manager.container_id = self.args.name
+
+        manager.stop()
+        success = manager.remove()
+
+        if success and hasattr(self.args, "volumes") and self.args.volumes:
+            manager.remove_volumes(self.args.name)
+
+        if not success:
+            print(f"failed to remove container '{self.args.name}'")
+
+    def handle_shell(self) -> None:
+        manager = DevContainerManager(self.args.name, "", {})
+        manager.container_id = self.args.name
+        manager.exec_shell(self.args.shell)
+
+    def handle_dotsync(self) -> None:
+        if self.args.dotsync_command == "install" and self.args.profile:
+            if self.args.profile not in DevEnvironmentConfig.PROFILES:
+                available = list(DevEnvironmentConfig.PROFILES.keys())
+                print(
+                    f"profile '{self.args.profile}' not found. available profiles: {available}"
+                )
+                sys.exit(1)
+
+            profile_data = DevEnvironmentConfig.PROFILES[self.args.profile]
+
+            if "dotfiles" not in profile_data:
+                print(
+                    f"no dotfiles configuration found in profile '{self.args.profile}'"
+                )
+                sys.exit(1)
+
+            manager = DotfilesManager()
+            manager.install_dotfiles(profile_data["dotfiles"], self.args.source_dir)
+
+    def handle(self):
+        match self.args.command:
+            case "build":
+                self.handle_build()
+            case "spin":
+                self.handle_spin()
+            case "craft":
+                self.handle_craft()
+            case "ls":
+                self.handle_ls()
+            case "rm":
+                self.handle_rm()
+            case "shell":
+                self.handle_shell()
+            case "dotsync":
+                self.handle_dotsync()
+            case _:
+                self.parser.print_help()
+
+
+def get_dockerfile_path(profile: str, config: DevEnvironmentConfig) -> pathlib.Path:
+    devenv_dir = pathlib.Path.home() / ".devenv"
+    return devenv_dir / f"Dockerfile.{profile}.{config.distro}.{config.host_arch}"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="development Environment Manager")
+    subparsers = parser.add_subparsers(dest="command", help="available commands")
+
+    spin_parser = subparsers.add_parser("spin", help="spin up development environment")
+    spin_parser.add_argument(
+        "--profile",
+        default="dev-rpm-full",
+        help="profile name to use (default: dev-rpm-full)",
+    )
+    spin_parser.add_argument("--name", help="container name")
+    spin_parser.add_argument("--arch", choices=["x86_64", "aarch64"])
+
+    build_parser = subparsers.add_parser("build", help="build development environment")
+    build_parser.add_argument(
+        "--profile",
+        default="dev-rpm-full",
+        help="profile name to use (default: dev-rpm-full)",
+    )
+    build_parser.add_argument("--dockerfile", help="output Dockerfile path")
+    build_parser.add_argument("--arch", choices=["x86_64", "aarch64"])
+    build_parser.add_argument("--distro", choices=["rpm", "deb"], default="rpm")
+
+    craft_parser = subparsers.add_parser("craft", help="generate Dockerfile")
+    craft_parser.add_argument(
+        "--profile",
+        default="dev-rpm-full",
+        help="profile name to use (default: dev-rpm-full)",
+    )
+    craft_parser.add_argument("--output", help="output Dockerfile path")
+    craft_parser.add_argument("--arch", choices=["x86_64", "aarch64"])
+
+    dotsync_parser = subparsers.add_parser("dotsync", help="sync dotfiles")
+    dotsync_subparsers = dotsync_parser.add_subparsers(dest="dotsync_command")
+
+    install_parser = dotsync_subparsers.add_parser("install", help="install dotfiles")
+    install_parser.add_argument("--source-dir", help="source directory")
+    install_parser.add_argument(
+        "--profile",
+        default="dev-rpm-full",
+        help="profile name to use (default: dev-rpm-full)",
+    )
+
+    subparsers.add_parser("ls", help="list containers")
+
+    rm_parser = subparsers.add_parser("rm", help="remove container")
+    rm_parser.add_argument("name", help="container name")
+    rm_parser.add_argument("--volumes", action="store_true", help="also delete volumes")
+
+    shell_parser = subparsers.add_parser("shell", help="shell into container")
+    shell_parser.add_argument("name", help="container name")
+    shell_parser.add_argument("--shell", default="/bin/bash", help="shell to use")
+
+    args = parser.parse_args()
+
+    CommandHandler(args).handle()
+
+
+if __name__ == "__main__":
+    main()
