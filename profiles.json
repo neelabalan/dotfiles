@@ -14,15 +14,24 @@
         }
       ]
     },
-    "dotfiles": {
-      "files": [
-        ".bashrc",
-        ".config/starship.toml",
-        ".config/nvim/"
-      ]
-    },
+    "dotfiles": [".bashrc", ".config/starship.toml", ".config/nvim/"],
     "dev_env": {
-      "tools": ["init", "python", "starship", "node", "rust", "tools", "neovim", "go", "pnpm", "docker", "ssh", "optional", "cleanup"]
+      "tools": [
+        "init",
+        "python",
+        "dotfiles",
+        "starship",
+        "node",
+        "rust",
+        "tools",
+        "neovim",
+        "go",
+        "pnpm",
+        "docker",
+        "ssh",
+        "optional",
+        "cleanup"
+      ]
     }
   },
   "ml-development": {
@@ -40,15 +49,7 @@
         }
       ]
     },
-    "dotfiles": {
-      "repo_url": "https://github.com/neelabalan/dotfiles.git",
-      "source_dir": "ml",
-      "files": [
-        ".bashrc",
-        ".vimrc", 
-        ".gitconfig"
-      ]
-    },
+    "dotfiles": [".bashrc", ".vimrc", ".gitconfig"],
     "dev_env": {
       "tools": ["python", "starship", "tools", "neovim"]
     }
@@ -63,19 +64,12 @@
       "volumes": [
         {
           "source": "./web-workspace",
-          "target": "/home/developer/workspace", 
+          "target": "/home/developer/workspace",
           "mode": "rw"
         }
       ]
     },
-    "dotfiles": {
-      "files": [
-        ".bashrc",
-        ".vimrc",
-        ".gitconfig",
-        ".tmux.conf"
-      ]
-    },
+    "dotfiles": [".bashrc", ".vimrc", ".gitconfig", ".tmux.conf"],
     "dev_env": {
       "tools": ["node", "starship", "tools", "pnpm"]
     }

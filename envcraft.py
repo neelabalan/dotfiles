@@ -123,10 +123,10 @@ class DevEnvironmentConfig:
                 sudo dnf install -y docker-ce-cli
                 """).strip(),
             "cleanup": [
-                "sudo dnf clean all",
-                "sudo rm -rf /var/cache/dnf/*",
-                "sudo rm -rf /usr/share/doc",
-                "sudo rm -rf /root/.cache",
+                """sudo dnf clean all && \\
+                sudo rm -rf /var/cache/dnf/* && \\
+                sudo rm -rf /usr/share/doc && \\
+                sudo rm -rf /root/.cache""",
             ],
         }
 
@@ -203,7 +203,8 @@ class DevEnvironmentConfig:
 
         if self.profile:
             config["setup"] = [
-                f"cd .dotfiles && uvx --from . envcraft dotsync install --profile {self.profile}"
+                "ls ~/.dotfiles/",
+                f"uvx python3.11 ~/.dotfiles/envcraft.py dotsync install --source-dir=~/.dotfiles/ --profile-name={self.profile} --profile=~/.dotfiles/profiles.json"
             ]
 
         return config
@@ -222,7 +223,7 @@ class DevEnvironmentConfig:
                     f"curl -LsSf https://astral.sh/uv/{self.versions['uv']}/install.sh | sh && uv python install 3.11 3.13"
                 ],
             },
-            "dotfile": self._generate_dotfile_config(),
+            "dotfiles": self._generate_dotfile_config(),
             "starship": {
                 "prepare": [distro_config["curl_install"]],
                 "setup": [
@@ -373,18 +374,17 @@ class DockerfileBuilder:
                 buf.write(f"RUN {cmd}\n")
             buf.write("\n")
 
-        if tool.get("setup"):
-            buf.write(f"# setup for {name}\n")
-            for cmd in tool["setup"]:
-                buf.write(f"RUN {normalize_indent_after_first_line(cmd)}\n")
-            buf.write("\n")
-
         if tool.get("copy"):
             buf.write(f"# file copy for {name}\n")
             for f in tool["copy"]:
                 buf.write(
                     f"COPY --chown=$USERNAME:$USERNAME {f['source']} {f['destination']}\n"
                 )
+        if tool.get("setup"):
+            buf.write(f"# setup for {name}\n")
+            for cmd in tool["setup"]:
+                buf.write(f"RUN {normalize_indent_after_first_line(cmd)}\n")
+            buf.write("\n")
 
         return buf.getvalue()
 
@@ -500,139 +500,97 @@ class DotfilesManager:
                 print(f"error creating symlink for {file_path}: {e}")
 
 
-class DevEnvironmentBuilder:
-    def __init__(self):
-        self.profile_data = None
-        self.dev_config = None
-        self.dotfiles_manager = None
+def build_dockerfile(profile_data: dict, distro: str = "rpm", arch_override: str = None, profile_name: str = None, output_path: str = None) -> str:
+    docker_config = profile_data.get("docker", {})
+    base_image = docker_config.get("base_image")
+    container_user = docker_config.get("container_user", "blue")
 
-    def with_dev_config(
-        self, distro: str = "rpm", arch_override: str = None, profile: str = None
-    ):
-        docker_config = self.profile_data.get("docker", {}) if self.profile_data else {}
-        base_image = docker_config.get("base_image")
-        container_user = docker_config.get("container_user", "blue")
+    dev_config = DevEnvironmentConfig(
+        distro=distro,
+        arch_override=arch_override,
+        username=container_user,
+        profile=profile_name,
+    )
 
-        self.dev_config = DevEnvironmentConfig(
-            distro=distro,
-            arch_override=arch_override,
-            username=container_user,
-            profile=profile,
-        )
-
-        if base_image:
-            if self.dev_config.distro == "deb":
-                self.dev_config.deb_config["base_image"] = base_image
-            else:
-                self.dev_config.rpm_config["base_image"] = base_image
-            self.dev_config._setup_distro_config()
-            self.dev_config.docker_base_template = (
-                self.dev_config._setup_docker_template()
-            )
-
-        return self
-
-    def with_dotfiles_manager(self, dotfiles_dir: str = None):
-        self.dotfiles_manager = DotfilesManager(
-            pathlib.Path(dotfiles_dir) if dotfiles_dir else None
-        )
-        return self
-
-    def build_dockerfile(self, output_path: str = None) -> str:
-        if not self.dev_config:
-            raise ValueError("DevEnvironmentConfig not set")
-
-        if self.profile_data and self.profile_data.get("dev_env"):
-            tools_to_include = self.profile_data["dev_env"].get("tools", [])
-            if tools_to_include:
-                filtered_conf = {}
-                for tool in tools_to_include:
-                    if tool in self.dev_config.conf:
-                        filtered_conf[tool] = self.dev_config.conf[tool]
-
-                if "init" not in filtered_conf and "init" in self.dev_config.conf:
-                    filtered_conf["init"] = self.dev_config.conf["init"]
-
-                original_conf = self.dev_config.conf
-                self.dev_config.conf = filtered_conf
-
-        builder = DockerfileBuilder(self.dev_config)
-        dockerfile_content = builder.build()
-
-        if self.profile_data and self.profile_data.get("dev_env"):
-            tools_to_include = self.profile_data["dev_env"].get("tools", [])
-            if tools_to_include:
-                self.dev_config.conf = original_conf
-
-        if not output_path:
-            devenv_dir = pathlib.Path.home() / ".devenv"
-            devenv_dir.mkdir(exist_ok=True)
-
-            profile_name = (
-                self.profile_data.get("name", "default")
-                if self.profile_data
-                else "default"
-            )
-            arch = self.dev_config.host_arch if self.dev_config else "x86_64"
-            distro = self.dev_config.distro if self.dev_config else "rpm"
-
-            output_path = devenv_dir / f"Dockerfile.{profile_name}.{distro}.{arch}"
-
-        pathlib.Path(output_path).write_text(dockerfile_content)
-        print(f"written Dockerfile to {output_path}")
-
-        return dockerfile_content
-
-    def run_container(self, image_name: str, container_name: str = None):
-        if not self.profile_data or not self.profile_data.get("docker"):
-            raise ValueError("docker configuration not found in profile")
-
-        docker_config = self.profile_data["docker"]
-        ports = docker_config.get("exposed_ports", [])
-        volumes = docker_config.get("volumes", [])
-
-        cmd = ["docker", "run", "-d", "--label", "envcraft=true"]
-
-        if container_name:
-            cmd.extend(
-                [
-                    "--name",
-                    container_name,
-                    "--label",
-                    f"envcraft.container={container_name}",
-                ]
-            )
-
-        for port in ports:
-            cmd.extend(["-p", f"{port}:{port}"])
-
-        for volume in volumes:
-            source = pathlib.Path(volume["source"]).resolve()
-            target = volume["target"]
-            mode = volume.get("mode", "rw")
-            cmd.extend(["-v", f"{source}:{target}:{mode}"])
-
-        cmd.append(image_name)
-
-        print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode == 0:
-            print(f"container started successfully: {result.stdout.strip()}")
-            return result.stdout.strip()
+    # Override base image if specified in profile
+    if base_image:
+        if dev_config.distro == "deb":
+            dev_config.deb_config["base_image"] = base_image
         else:
-            print(f"error starting container: {result.stderr}")
-            return None
+            dev_config.rpm_config["base_image"] = base_image
+        dev_config._setup_distro_config()
+        dev_config.docker_base_template = dev_config._setup_docker_template()
 
-    def install_dotfiles(self):
-        if not self.dotfiles_manager or not self.profile_data:
-            raise ValueError("DotfilesManager or profile_data not set")
+    # Filter tools based on profile configuration
+    if profile_data.get("dev_env"):
+        tools_to_include = profile_data["dev_env"].get("tools", [])
+        if tools_to_include:
+            filtered_conf = {}
+            for tool in tools_to_include:
+                if tool in dev_config.conf:
+                    filtered_conf[tool] = dev_config.conf[tool]
 
-        dotfiles_config = self.profile_data.get("dotfiles", {})
-        files = dotfiles_config.get("files", [])
-        source_dir = dotfiles_config.get("source_dir")
+            # Always include init for base setup
+            if "init" not in filtered_conf and "init" in dev_config.conf:
+                filtered_conf["init"] = dev_config.conf["init"]
 
-        self.dotfiles_manager.install_dotfiles(files, source_dir)
+            dev_config.conf = filtered_conf
+
+    builder = DockerfileBuilder(dev_config)
+    dockerfile_content = builder.build()
+
+    if not output_path:
+        devenv_dir = pathlib.Path.home() / ".devenv"
+        devenv_dir.mkdir(exist_ok=True)
+
+        profile_name_for_file = profile_data.get("name", profile_name or "default")
+        arch = dev_config.host_arch
+        distro = dev_config.distro
+
+        output_path = devenv_dir / f"Dockerfile.{profile_name_for_file}.{distro}.{arch}"
+
+    pathlib.Path(output_path).write_text(dockerfile_content)
+    print(f"written Dockerfile to {output_path}")
+
+    return dockerfile_content
+
+
+def run_container(profile_data: dict, image_name: str, container_name: str = None) -> str:
+    if not profile_data.get("docker"):
+        raise ValueError("docker configuration not found in profile")
+
+    docker_config = profile_data["docker"]
+    ports = docker_config.get("exposed_ports", [])
+    volumes = docker_config.get("volumes", [])
+
+    cmd = ["docker", "run", "-d", "--label", "envcraft=true"]
+
+    if container_name:
+        cmd.extend([
+            "--name", container_name,
+            "--label", f"envcraft.container={container_name}",
+        ])
+
+    for port in ports:
+        cmd.extend(["-p", f"{port}:{port}"])
+
+    for volume in volumes:
+        source = pathlib.Path(volume["source"]).resolve()
+        target = volume["target"]
+        mode = volume.get("mode", "rw")
+        cmd.extend(["-v", f"{source}:{target}:{mode}"])
+
+    cmd.append(image_name)
+
+    print(f"Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        print(f"container started successfully: {result.stdout.strip()}")
+        return result.stdout.strip()
+    else:
+        print(f"error starting container: {result.stderr}")
+        return None
 
 
 class ContainerManager:
@@ -706,21 +664,22 @@ def load_profile_config(config_path: str) -> dict:
         return json.load(f)
 
 
-def unified_main():
+def main():
     parser = argparse.ArgumentParser(description="development Environment Manager")
     subparsers = parser.add_subparsers(dest="command", help="available commands")
 
     # Build command
     build_parser = subparsers.add_parser("build", help="build development environment")
-    build_parser.add_argument("--profile", required=True, help="path to profile JSON")
+    build_parser.add_argument("--profile", default="profiles.json", help="path to profile JSON (default: profiles.json)")
+    build_parser.add_argument("--profile-name", default="dev-rpm-full", help="profile name to use (default: dev-rpm-full)")
     build_parser.add_argument("--dockerfile", help="output Dockerfile path")
     build_parser.add_argument("--arch", choices=["x86_64", "aarch64"])
     build_parser.add_argument("--distro", choices=["rpm", "deb"], default="rpm")
-    build_parser.add_argument("--profile-name", help="dotfiles profile name to install")
 
     # Run command
     run_parser = subparsers.add_parser("run", help="run development environment")
-    run_parser.add_argument("--profile", required=True, help="path to profile JSON")
+    run_parser.add_argument("--profile", default="profiles.json", help="path to profile JSON (default: profiles.json)")
+    run_parser.add_argument("--profile-name", default="dev-rpm-full", help="profile name to use (default: dev-rpm-full)")
     run_parser.add_argument("--image", required=True, help="docker image name")
     run_parser.add_argument("--name", help="container name")
 
@@ -729,10 +688,12 @@ def unified_main():
     dotsync_subparsers = dotsync_parser.add_subparsers(dest="dotsync_command")
 
     install_parser = dotsync_subparsers.add_parser("install", help="install dotfiles")
-    install_parser.add_argument("--files", nargs="+", help="files to sync")
     install_parser.add_argument("--source-dir", help="source directory")
     install_parser.add_argument(
         "--profile", help="profile JSON file to use for dotfiles config"
+    )
+    install_parser.add_argument(
+        "--profile-name", default="dev-rpm-full", help="profile name to use (default: dev-rpm-full)"
     )
 
     # Container management commands
@@ -759,16 +720,21 @@ def unified_main():
             sys.exit(1)
 
         profiles = load_profile_config(args.profile)
-        profile_name = list(profiles.keys())[0]
-        profile_data = profiles[profile_name]
+        
+        if args.profile_name not in profiles:
+            print(f"Profile '{args.profile_name}' not found in {args.profile}")
+            print(f"Available profiles: {list(profiles.keys())}")
+            sys.exit(1)
+            
+        profile_data = profiles[args.profile_name]
 
-        builder = DevEnvironmentBuilder(profile_data)
-        builder.with_dev_config(
-            distro=args.distro, arch_override=args.arch, profile=args.profile_name
+        build_dockerfile(
+            profile_data=profile_data,
+            distro=args.distro,
+            arch_override=args.arch,
+            profile_name=args.profile_name,
+            output_path=args.dockerfile
         )
-
-        # Use provided dockerfile path or default to ~/.devenv
-        builder.build_dockerfile(args.dockerfile)
 
     elif args.command == "run":
         if not pathlib.Path(args.profile).exists():
@@ -776,43 +742,42 @@ def unified_main():
             sys.exit(1)
 
         profiles = load_profile_config(args.profile)
-        profile_name = list(profiles.keys())[0]
-        profile_data = profiles[profile_name]
 
-        builder = DevEnvironmentBuilder()
-        builder.with_profile(profile_data)
+        
+        if args.profile_name not in profiles:
+            print(f"Profile '{args.profile_name}' not found in {args.profile}")
+            print(f"Available profiles: {list(profiles.keys())}")
+            sys.exit(1)
+            
+        profile_data = profiles[args.profile_name]
 
-        container_id = builder.run_container(args.image, args.name)
+        container_id = run_container(profile_data, args.image, args.name)
         if container_id:
             print(f"Container {container_id} is running")
 
     elif args.command == "dotsync":
         if args.dotsync_command == "install":
             if args.profile:
-                # Profile-based installation
-                if not pathlib.Path(args.profile).exists():
+                profile = pathlib.Path(args.profile).expanduser()
+                if not profile.exists():
                     print(f"Profile file not found: {args.profile}")
                     sys.exit(1)
 
-                profiles = load_profile_config(args.profile)
-                profile_name = list(profiles.keys())[0]
-                profile_data = profiles[profile_name]
+                profiles = load_profile_config(profile)
+                if args.profile_name not in profiles:
+                    print(f"Profile '{args.profile_name}' not found in {args.profile}")
+                    print(f"Available profiles: {list(profiles.keys())}")
+                    sys.exit(1)
+            
+                profile_data = profiles[args.profile_name]
 
                 if "dotfiles" not in profile_data:
-                    print(
-                        f"No dotfiles configuration found in profile '{profile_name}'"
-                    )
+                    print(f"No dotfiles configuration found in profile '{args.profile_name}'")
                     sys.exit(1)
 
-                builder = DevEnvironmentBuilder()
-                builder.with_profile(profile_data)
-                builder.with_dotfiles_manager()
-                builder.install_dotfiles()
-
-            elif args.files:
-                # Direct file installation
                 manager = DotfilesManager()
-                manager.install_dotfiles(args.files, args.source_dir)
+                manager.install_dotfiles(profile_data["dotfiles"], args.source_dir)
+
             else:
                 print("Either --profile or --files must be specified")
                 dotsync_parser.print_help()
@@ -834,4 +799,4 @@ def unified_main():
 
 
 if __name__ == "__main__":
-    unified_main()
+    main()
