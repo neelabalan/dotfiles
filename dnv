@@ -886,10 +886,11 @@ class CommandHandler:
             else:
                 print(f"image {image_name} not found, building...")
 
-            dockerfile_content = DockerfileBuilder(config).build()
-            self.artifact_repo.save_artifact(dockerfile_content, config)
+            self.artifact_repo.save_artifact(
+                DockerfileBuilder(config).build(), get_dockerfile_name(config)
+            )
 
-            if not image_builder.build(self.artifact_repo):
+            if not image_builder.build():
                 print("failed to build image")
                 sys.exit(1)
         else:
@@ -917,14 +918,14 @@ class CommandHandler:
             sys.exit(1)
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
-
-        dockerfile_content = DockerfileBuilder(config).build()
-        self.artifact_repo.save_artifact(dockerfile_content, config)
+        self.artifact_repo.save_artifact(
+            DockerfileBuilder(config).build(), get_dockerfile_name(config)
+        )
 
         image_builder = ImageBuilder(
             ImageBuilder.get_image_tag(config), get_dockerfile_name(config)
         )
-        if not image_builder.build(self.artifact_repo):
+        if not image_builder.build():
             print("failed to build image")
             sys.exit(1)
 
@@ -975,9 +976,7 @@ class CommandHandler:
                 )
                 sys.exit(1)
 
-            config = DevEnvironmentConfig.from_profile(
-                self.args.profile, self.args.arch
-            )
+            config = DevEnvironmentConfig.from_profile(self.args.profile)
             profile_data = config.get_profile_data()
 
             if "dotfiles" not in profile_data:
