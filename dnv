@@ -10,6 +10,7 @@ import string
 import subprocess
 import sys
 import textwrap
+from typing import Any, Dict
 
 
 class DockerfileTemplate(string.Template):
@@ -20,7 +21,7 @@ class DockerfileTemplate(string.Template):
 # - add cpu/mem limits at profile level
 # - add arch as well?
 class DevEnvironmentConfig:
-    PROFILES = {
+    PROFILES: Dict[str, Dict[str, Any]] = {
         "dev-rpm-full": {
             "name": "dev-rpm-full",
             "docker": {
@@ -346,9 +347,10 @@ class DevEnvironmentConfig:
             profile_data = self.PROFILES[self.profile]
             tools_to_include = profile_data.get("tools")
             filtered_conf = {}
-            for tool in tools_to_include:
-                if tool in all_tools:
-                    filtered_conf[tool] = all_tools[tool]
+            if tools_to_include:
+                for tool in tools_to_include:
+                    if tool in all_tools:
+                        filtered_conf[tool] = all_tools[tool]
 
             if "init" not in filtered_conf and "init" in all_tools:
                 filtered_conf["init"] = all_tools["init"]
@@ -617,7 +619,7 @@ class ArtifactRepository:
         filepath.write_text(content)
         return filepath
 
-    def save_logs(self, log_content: str, log_name: str = None) -> pathlib.Path:
+    def save_logs(self, log_content: str, log_name: str | None = None) -> pathlib.Path:
         if log_name is None:
             timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             log_name = f"build-{timestamp}.log"
@@ -732,11 +734,11 @@ class DevContainerManager:
         return result.returncode == 0 and result.stdout.strip() == "true"
 
     def start(self) -> str | None:
-        cmd = ["docker", "run", "-d", "--label", "envcraft=true"]
+        cmd = ["docker", "run", "-d", "--label", "devenv=true"]
 
         if self.name:
             cmd.extend(
-                ["--name", self.name, "--label", f"envcraft.container={self.name}"]
+                ["--name", self.name, "--label", f"devenv.container={self.name}"]
             )
 
         for port in self.config.get("exposed_ports", []):
@@ -791,12 +793,17 @@ class DevContainerManager:
         return self.is_running()
 
     def get_logs(self) -> str:
+        if not self.container_id:
+            return ""
         result = subprocess.run(
             ["docker", "logs", self.container_id], capture_output=True, text=True
         )
         return result.stdout if result.returncode == 0 else ""
 
     def exec_shell(self, shell: str = "/bin/bash") -> None:
+        if not self.container_id:
+            print("no container ID available")
+            return
         result = subprocess.run(["docker", "exec", "-it", self.container_id, shell])
         if result.returncode != 0:
             print(
@@ -810,7 +817,7 @@ class DevContainerManager:
                 "volume",
                 "ls",
                 "--filter",
-                f"label=envcraft.container={container_name}",
+                f"label=devenv.container={container_name}",
                 "-q",
             ],
             capture_output=True,
@@ -837,7 +844,7 @@ class DevContainerManager:
                 "ps",
                 "-a",
                 "--filter",
-                "label=envcraft=true",
+                "label=devenv=true",
                 "--format",
                 "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}",
             ],
@@ -846,7 +853,7 @@ class DevContainerManager:
         )
 
         if result.returncode == 0:
-            print("envCraft deployments:")
+            print("devenv deployments:")
             print(result.stdout)
             return []  # Return empty for now, could parse the output if needed
         else:
@@ -887,7 +894,7 @@ class CommandHandler:
                 print(f"image {image_name} not found, building...")
 
             self.artifact_repo.save_artifact(
-                DockerfileBuilder(config).build(), get_dockerfile_name(config)
+                DockerfileBuilder(config).build(), str(get_dockerfile_name(config))
             )
 
             if not image_builder.build():
@@ -919,7 +926,7 @@ class CommandHandler:
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
         self.artifact_repo.save_artifact(
-            DockerfileBuilder(config).build(), get_dockerfile_name(config)
+            DockerfileBuilder(config).build(), str(get_dockerfile_name(config))
         )
 
         image_builder = ImageBuilder(
