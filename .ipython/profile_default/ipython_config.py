@@ -7,5 +7,3 @@ c.InteractiveShellApp.exec_lines = [
 c.TerminalInteractiveShell.editing_mode = 'vi'
 c.TerminalInteractiveShell.editor = 'vim'
 # c.TerminalInteractiveShell.prompts_class.in_template = '→ [\\#]: '
-
-

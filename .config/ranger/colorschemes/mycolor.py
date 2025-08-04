@@ -1,7 +1,19 @@
 from ranger.gui.colorscheme import ColorScheme
 from ranger.gui.color import (
-    black, blue, cyan, green, magenta, red, white, yellow, default,
-    normal, bold, reverse, dim, BRIGHT,
+    black,
+    blue,
+    cyan,
+    green,
+    magenta,
+    red,
+    white,
+    yellow,
+    default,
+    normal,
+    bold,
+    reverse,
+    dim,
+    BRIGHT,
     default_colors,
 )
 
@@ -34,9 +46,7 @@ class Default(ColorScheme):
             if context.directory:
                 fg = blue
                 fg += BRIGHT
-            elif context.executable and not \
-                    any((context.media, context.container,
-                         context.fifo, context.socket)):
+            elif context.executable and not any((context.media, context.container, context.fifo, context.socket)):
                 fg = green
                 fg += BRIGHT
             if context.socket:

@@ -7,7 +7,7 @@
 # A simple command for demonstration purposes follows.
 # -----------------------------------------------------------------------------
 
-from __future__ import (absolute_import, division, print_function)
+from __future__ import absolute_import, division, print_function
 
 # You can import any python module as needed.
 import os
@@ -18,15 +18,18 @@ from ranger.api.commands import Command
 
 from ranger.api.commands import Command
 
+
 class pod(Command):
     def execute(self):
         import json
+
         file_name = self.fm.thisfile.path
         with open(file_name, 'r') as file:
             file = open(file_name, 'r')
             js = json.loads(file.read())
         audiourl = js.get('links')
-        self.fm.execute_command("mpv "+audiourl)
+        self.fm.execute_command('mpv ' + audiourl)
+
 
 class rfz(Command):
     """
@@ -38,10 +41,12 @@ class rfz(Command):
 
     See: https://github.com/junegunn/fzf
     """
+
     def execute(self):
         import subprocess
         import os.path
-        fzf = self.fm.execute_command("fzf +m", universal_newlines=True, stdout=subprocess.PIPE)
+
+        fzf = self.fm.execute_command('fzf +m', universal_newlines=True, stdout=subprocess.PIPE)
         stdout, stderr = fzf.communicate()
         if fzf.returncode == 0:
             fzf_file = os.path.abspath(stdout.rstrip('\n'))
@@ -49,11 +54,14 @@ class rfz(Command):
                 self.fm.cd(fzf_file)
             else:
                 self.fm.select_file(fzf_file)
+
+
 # Any class that is a subclass of "Command" will be integrated into ranger as a
 # command.  Try typing ":my_edit<ENTER>" in ranger!
 class viv(Command):
     def execute(self):
-        self.fm.execute_command("nohup vivaldi " + "\"" + self.fm.thisfile.path + "\"")
+        self.fm.execute_command('nohup vivaldi ' + '"' + self.fm.thisfile.path + '"')
+
 
 class my_edit(Command):
     # The so-called doc-string of the class will be visible in the built-in
@@ -78,11 +86,11 @@ class my_edit(Command):
             target_filename = self.fm.thisfile.path
 
         # This is a generic function to print text in ranger.
-        self.fm.notify("Let's edit the file " + target_filename + "!")
+        self.fm.notify("Let's edit the file " + target_filename + '!')
 
         # Using bad=True in fm.notify allows you to print error messages:
         if not os.path.exists(target_filename):
-            self.fm.notify("The given file does not exist!", bad=True)
+            self.fm.notify('The given file does not exist!', bad=True)
             return
 
         # This executes a function from ranger.core.acitons, a module with a
