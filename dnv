@@ -630,24 +630,16 @@ class ImageBuilder:
         # both exist, compare timestamps as strings
         dockerfile_time = self._get_dockerfile_creation_time(dockerfile_path)
         image_time = self._get_image_creation_time(image_name)
-        # print(f"dockerfile time {dockerfile_time} > image time {image_time}")
+        if dockerfile_time > image_time:
+            print(f'dockerfile time {dockerfile_time} > image time {image_time}')
 
         return dockerfile_time > image_time
 
     def _get_dockerfile_creation_time(self, dockerfile_path: pathlib.Path) -> str:
         # convert file mtime to Docker's ISO timestamp format for comparison
-        dt = datetime.datetime.fromtimestamp(
-            dockerfile_path.stat().st_mtime, tz=datetime.timezone(datetime.timedelta(seconds=-time.timezone))
-        )
+        dt = datetime.datetime.fromtimestamp(dockerfile_path.stat().st_mtime, tz=datetime.timezone.utc)
         formatted = dt.strftime('%Y-%m-%dT%H:%M:%S.%f')
-        # +HHMM
-        tz_offset = dt.strftime('%z')
-        # +HHMM -> +HH:MM
-        if len(tz_offset) == 5:
-            tz_formatted = f'{tz_offset[:3]}:{tz_offset[3:]}'
-        else:
-            tz_formatted = tz_offset
-        return f'{formatted}{tz_formatted}'
+        return f'{formatted}Z'
 
     def _get_image_creation_time(self, image_name: str) -> str:
         result = subprocess.run(
@@ -731,7 +723,7 @@ class DevContainerManager:
         cmd.append('bash')
 
         print(f'starting container: {" ".join(cmd)}')
-        
+
         # replace the current python process with Docker - this exits Python
         # and drops directly into the interactive container
         os.execvp('docker', cmd)
@@ -850,18 +842,20 @@ class CommandHandler:
             sys.exit(1)
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
+        dockerfile_path = get_dockerfile_name(config)
 
         image_name = ImageBuilder.get_image_tag(config)
-        image_builder = ImageBuilder(image_name, get_dockerfile_name(config))
+        image_builder = ImageBuilder(image_name, dockerfile_path)
 
-        if not image_builder.is_built() or image_builder.needs_rebuild():
-            if image_builder.is_built():
-                print('dockerfile is newer than existing image, rebuilding...')
-            else:
-                print(f'image {image_name} not found, building...')
+        if not image_builder.is_built():
+            print(f'image {image_name} not found, building...')
+            self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(dockerfile_path))
 
-            self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(get_dockerfile_name(config)))
-
+            if not image_builder.build():
+                print('failed to build image')
+                sys.exit(1)
+        elif image_builder.needs_rebuild():
+            print('dockerfile is newer than existing image, rebuilding...')
             if not image_builder.build():
                 print('failed to build image')
                 sys.exit(1)
@@ -870,11 +864,7 @@ class CommandHandler:
 
         # This call will replace the current Python process with the Docker command
         # and never return - the user will be dropped directly into the container
-        DevContainerManager.start(
-            image_name, 
-            self.args.name, 
-            config.get_profile_data().get('docker', {})
-        )
+        DevContainerManager.start(image_name, self.args.name, config.get_profile_data().get('docker', {}))
 
     def handle_build(self) -> None:
         if self.args.profile not in DevEnvironmentConfig.PROFILES:
@@ -883,9 +873,10 @@ class CommandHandler:
             sys.exit(1)
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
-        self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(get_dockerfile_name(config)))
+        dockerfile_path = get_dockerfile_name(config)
+        self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(dockerfile_path))
 
-        image_builder = ImageBuilder(ImageBuilder.get_image_tag(config), get_dockerfile_name(config))
+        image_builder = ImageBuilder(ImageBuilder.get_image_tag(config), dockerfile_path)
         if not image_builder.build():
             print('failed to build image')
             sys.exit(1)
