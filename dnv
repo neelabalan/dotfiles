@@ -765,6 +765,29 @@ class DevContainerManager:
         return result.stdout if result.returncode == 0 else ''
 
     @staticmethod
+    def start_existing_container(container_name: str) -> bool:
+        if not container_name:
+            return False
+        result = subprocess.run(['docker', 'start', container_name], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"container '{container_name}' started successfully")
+            return True
+        else:
+            print(f"failed to start container '{container_name}': {result.stderr}")
+            return False
+
+    @staticmethod
+    def container_exists(container_name: str) -> bool:
+        if not container_name:
+            return False
+        result = subprocess.run(
+            ['docker', 'inspect', '--format', '{{.State.Status}}', container_name],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+
+    @staticmethod
     def exec_shell(container_id: str, shell: str = '/bin/bash') -> None:
         if not container_id:
             print('no container ID available')
@@ -910,7 +933,24 @@ class CommandHandler:
             print(f"failed to remove container '{self.args.name}'")
 
     def handle_shell(self) -> None:
-        DevContainerManager.exec_shell(self.args.name, self.args.shell)
+        container_name = self.args.name
+
+        if not container_name:
+            print('container name is required for shell command')
+            return
+
+        if not DevContainerManager.container_exists(container_name):
+            print(f"container '{container_name}' does not exist")
+            return
+
+        if not DevContainerManager.is_running(container_name):
+            print(f"container '{container_name}' is not running, starting it...")
+            if not DevContainerManager.start_existing_container(container_name):
+                return
+
+        time.sleep(1)
+
+        DevContainerManager.exec_shell(container_name, self.args.shell)
 
     def handle_dotsync(self) -> None:
         if self.args.dotsync_command == 'install' and self.args.profile:
