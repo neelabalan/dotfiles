@@ -2,6 +2,7 @@
 import argparse
 import datetime
 import io
+import logging
 import os
 import pathlib
 import platform
@@ -13,6 +14,34 @@ import sys
 import textwrap
 import time
 import typing
+
+
+def _init_logger():
+    # Simple module-level logging setup
+    LOGS_BASE_DIR = pathlib.Path.home() / '.dotfiles' / '.devenv' / 'logs'
+    LOGS_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    MAIN_LOG_FILE = LOGS_BASE_DIR / 'dnv.log'
+
+    level = logging.DEBUG if os.environ.get('DEBUG') == '1' else logging.INFO
+    logger = logging.getLogger('dnv')
+    if logger.handlers:  # already configured
+        logger.setLevel(level)
+        return logger
+    logger.setLevel(level)
+    fmt = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    ch = logging.StreamHandler()
+    ch.setFormatter(fmt)
+    ch.setLevel(level)
+    fh = logging.FileHandler(MAIN_LOG_FILE, encoding='utf-8')
+    fh.setFormatter(fmt)
+    fh.setLevel(level)
+    logger.addHandler(ch)
+    logger.addHandler(fh)
+    logger.debug('Logger initialized (level=%s) file=%s', logging.getLevelName(level), MAIN_LOG_FILE)
+    return logger
+
+
+logger = _init_logger()
 
 
 class DockerfileTemplate(string.Template):
@@ -548,13 +577,13 @@ class DotfilesManager:
         if target.exists() and not target.is_symlink():
             self.backup_dir.mkdir(parents=True, exist_ok=True)
             backup_path = self.backup_dir / target.name
-            print(f'backing up existing {target} to {backup_path}')
+            logger.info(f'backing up existing {target} to {backup_path}')
             shutil.move(str(target), str(backup_path))
         elif target.is_symlink():
             target.unlink()
 
         target.symlink_to(source)
-        print(f'created symlink: {target} -> {source}')
+        logger.info(f'created symlink: {target} -> {source}')
 
     def install_dotfiles(self, files: list[str], source_dir: str | None = None) -> None:
         if source_dir:
@@ -569,13 +598,13 @@ class DotfilesManager:
             target = target_base / file_path
 
             if not source.exists():
-                print(f"source file doesn't exist: {source}")
+                logger.warning(f"source file doesn't exist: {source}")
                 continue
 
             try:
                 self.create_symlink(source, target)
             except Exception as e:
-                print(f'error creating symlink for {file_path}: {e}')
+                logger.error(f'error creating symlink for {file_path}: {e}')
 
 
 class ArtifactRepository:
@@ -584,6 +613,12 @@ class ArtifactRepository:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir = self.output_dir / 'logs'
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.main_log_file = self.logs_dir / 'dnv.log'
+        if not self.main_log_file.exists():
+            try:
+                self.main_log_file.touch()
+            except Exception as e:
+                logger.debug(f'could not create main log file: {e}')
 
     def save_artifact(self, content: str, filename: str) -> pathlib.Path:
         filepath = self.output_dir / filename
@@ -592,13 +627,15 @@ class ArtifactRepository:
         return filepath
 
     def save_logs(self, log_content: str, log_name: str | None = None) -> pathlib.Path:
-        if log_name is None:
-            timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-            log_name = f'build-{timestamp}.log'
-
-        log_path = self.logs_dir / log_name
-        log_path.write_text(log_content)
-        return log_path
+        # Always append to unified log file
+        section = log_name or 'section'
+        try:
+            with self.main_log_file.open('a', encoding='utf-8') as fh:
+                fh.write('\n' + ('-' * 60) + f'\n[{section.upper()}] {datetime.datetime.now().isoformat()}\n')
+                fh.write(log_content.rstrip() + '\n')
+        except Exception as e:
+            logger.error(f'failed writing logs: {e}')
+        return self.main_log_file
 
     def get_file_write_time(self, path: pathlib.Path) -> float:
         if not path.exists():
@@ -630,8 +667,7 @@ class ImageBuilder:
         # both exist, compare timestamps as strings
         dockerfile_time = self._get_dockerfile_creation_time(dockerfile_path)
         image_time = self._get_image_creation_time(image_name)
-        if dockerfile_time > image_time:
-            print(f'dockerfile time {dockerfile_time} > image time {image_time}')
+        logger.debug(f'Dockerfile time {dockerfile_time}, image time {image_time}')
 
         return dockerfile_time > image_time
 
@@ -660,7 +696,7 @@ class ImageBuilder:
         return self._dockerfile_is_newer(self.dockerfile_path, self.name)
 
     def build(self) -> bool:
-        print(f'building image: {self.name}')
+        logger.info(f'building image: {self.name}')
         build_cmd = [
             'docker',
             'build',
@@ -670,7 +706,7 @@ class ImageBuilder:
             str(self.dockerfile_path),
             '.',
         ]
-        print(f'running: {" ".join(build_cmd)}')
+        logger.debug(f'running: {" ".join(build_cmd)}')
 
         build_result = subprocess.run(build_cmd, capture_output=True, text=True)
 
@@ -681,13 +717,12 @@ class ImageBuilder:
             f'STDOUT:\n{build_result.stdout}\n'
             f'STDERR:\n{build_result.stderr}\n'
         )
-        artifact_repo.save_logs(log_content)
+        artifact_repo.save_logs(log_content, log_name='docker-build')
 
         if build_result.returncode != 0:
-            print(f'failed to build image: {build_result.stderr}')
+            logger.error(f'failed to build image {self.name}: {build_result.stderr.strip()}')
             return False
-
-        print(f'successfully built image: {self.name}')
+        logger.info(f'successfully built image: {self.name}')
         return True
 
 
@@ -718,11 +753,9 @@ class DevContainerManager:
             target = volume['target']
             mode = volume.get('mode', 'rw')
             cmd.extend(['-v', f'{source}:{target}:{mode}'])
-
         cmd.append(image_name)
         cmd.append('bash')
-
-        print(f'starting container: {" ".join(cmd)}')
+        logger.info(f'starting container: {" ".join(cmd)}')
 
         # replace the current python process with Docker - this exits Python
         # and drops directly into the interactive container
@@ -741,10 +774,10 @@ class DevContainerManager:
             return False
         result = subprocess.run(['docker', 'rm', container_id], capture_output=True, text=True)
         if result.returncode == 0:
-            print(f"container '{container_id}' removed successfully")
+            logger.info(f"container '{container_id}' removed successfully")
             return True
         else:
-            print(f"failed to remove container '{container_id}': {result.stderr}")
+            logger.error(f"failed to remove container '{container_id}': {result.stderr.strip()}")
             return False
 
     @staticmethod
@@ -770,10 +803,10 @@ class DevContainerManager:
             return False
         result = subprocess.run(['docker', 'start', container_name], capture_output=True, text=True)
         if result.returncode == 0:
-            print(f"container '{container_name}' started successfully")
+            logger.info(f"container '{container_name}' started successfully")
             return True
         else:
-            print(f"failed to start container '{container_name}': {result.stderr}")
+            logger.error(f"failed to start container '{container_name}': {result.stderr.strip()}")
             return False
 
     @staticmethod
@@ -790,11 +823,11 @@ class DevContainerManager:
     @staticmethod
     def exec_shell(container_id: str, shell: str = '/bin/bash') -> None:
         if not container_id:
-            print('no container ID available')
+            logger.warning('no container ID available')
             return
         result = subprocess.run(['docker', 'exec', '-it', container_id, shell])
         if result.returncode != 0:
-            print(f"failed to login to container '{container_id}'. make sure it's running.")
+            logger.error(f"failed to login to container '{container_id}' (ensure running)")
 
     @staticmethod
     def remove_volumes(container_name: str) -> bool:
@@ -816,9 +849,9 @@ class DevContainerManager:
             for volume in volumes:
                 vol_del_result = subprocess.run(['docker', 'volume', 'rm', volume], capture_output=True)
                 if vol_del_result.returncode == 0:
-                    print(f"volume '{volume}' removed")
+                    logger.info(f"volume '{volume}' removed")
                 else:
-                    print(f"failed to remove volume '{volume}'")
+                    logger.error(f"failed to remove volume '{volume}'")
             return True
         return False
 
@@ -839,11 +872,12 @@ class DevContainerManager:
         )
 
         if result.returncode == 0:
-            print('devenv deployments:')
-            print(result.stdout)
+            logger.info('devenv deployments:')
+            for line in result.stdout.strip().splitlines():
+                logger.info(f'{line}')
             return []  # Return empty for now, could parse the output if needed
         else:
-            print('error listing deployments:', result.stderr)
+            logger.error(f'error listing deployments: {result.stderr.strip()}')
             return []
 
 
@@ -861,7 +895,7 @@ class CommandHandler:
     def handle_spin(self) -> None:
         if self.args.profile not in DevEnvironmentConfig.PROFILES:
             available = list(DevEnvironmentConfig.PROFILES.keys())
-            print(f"profile '{self.args.profile}' not found. available profiles: {available}")
+            logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
             sys.exit(1)
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
@@ -871,19 +905,19 @@ class CommandHandler:
         image_builder = ImageBuilder(image_name, dockerfile_path)
 
         if not image_builder.is_built():
-            print(f'image {image_name} not found, building...')
+            logger.info(f'image {image_name} not found, building...')
             self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(dockerfile_path))
 
             if not image_builder.build():
-                print('failed to build image')
+                logger.error('failed to build image')
                 sys.exit(1)
         elif image_builder.needs_rebuild():
-            print('dockerfile is newer than existing image, rebuilding...')
+            logger.info('Dockerfile newer than image; rebuilding...')
             if not image_builder.build():
-                print('failed to build image')
+                logger.error('failed to build image')
                 sys.exit(1)
         else:
-            print(f'using existing image: {image_name}')
+            logger.info(f'using existing image: {image_name}')
 
         # This call will replace the current Python process with the Docker command
         # and never return - the user will be dropped directly into the container
@@ -892,7 +926,7 @@ class CommandHandler:
     def handle_build(self) -> None:
         if self.args.profile not in DevEnvironmentConfig.PROFILES:
             available = list(DevEnvironmentConfig.PROFILES.keys())
-            print(f"profile '{self.args.profile}' not found. available profiles: {available}")
+            logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
             sys.exit(1)
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
@@ -901,15 +935,14 @@ class CommandHandler:
 
         image_builder = ImageBuilder(ImageBuilder.get_image_tag(config), dockerfile_path)
         if not image_builder.build():
-            print('failed to build image')
+            logger.error('failed to build image')
             sys.exit(1)
-
-        print(f"image '{ImageBuilder.get_image_tag(config)}' built successfully")
+        logger.info(f"image '{ImageBuilder.get_image_tag(config)}' built successfully")
 
     def handle_craft(self) -> None:
         if self.args.profile not in DevEnvironmentConfig.PROFILES:
             available = list(DevEnvironmentConfig.PROFILES.keys())
-            print(f"profile '{self.args.profile}' not found. available profiles: {available}")
+            logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
             sys.exit(1)
 
         config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
@@ -917,7 +950,7 @@ class CommandHandler:
         dockerfile_content = DockerfileBuilder(config).build()
         filename = f'Dockerfile.{config.profile}.{config.distro}.{config.host_arch}'
         saved_path = self.artifact_repo.save_artifact(dockerfile_content, filename)
-        print(f'dockerfile written to: {saved_path}')
+        logger.info(f'Dockerfile written to: {saved_path}')
 
     def handle_ls(self) -> None:
         DevContainerManager.list_deployments()
@@ -930,21 +963,21 @@ class CommandHandler:
             DevContainerManager.remove_volumes(self.args.name)
 
         if not success:
-            print(f"failed to remove container '{self.args.name}'")
+            logger.error(f"failed to remove container '{self.args.name}'")
 
     def handle_shell(self) -> None:
         container_name = self.args.name
 
         if not container_name:
-            print('container name is required for shell command')
+            logger.error('container name required for shell command')
             return
 
         if not DevContainerManager.container_exists(container_name):
-            print(f"container '{container_name}' does not exist")
+            logger.error(f"container '{container_name}' does not exist")
             return
 
         if not DevContainerManager.is_running(container_name):
-            print(f"container '{container_name}' is not running, starting it...")
+            logger.info(f"container '{container_name}' not running; starting...")
             if not DevContainerManager.start_existing_container(container_name):
                 return
 
@@ -956,14 +989,14 @@ class CommandHandler:
         if self.args.dotsync_command == 'install' and self.args.profile:
             if self.args.profile not in DevEnvironmentConfig.PROFILES:
                 available = list(DevEnvironmentConfig.PROFILES.keys())
-                print(f"profile '{self.args.profile}' not found. available profiles: {available}")
+                logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
                 sys.exit(1)
 
             config = DevEnvironmentConfig.from_profile(self.args.profile)
             profile_data = config.get_profile_data()
 
             if 'dotfiles' not in profile_data:
-                print(f"no dotfiles configuration found in profile '{self.args.profile}'")
+                logger.error(f"no dotfiles configuration found in profile '{self.args.profile}'")
                 sys.exit(1)
 
             DotfilesManager().install_dotfiles(profile_data['dotfiles'], self.args.source_dir)
