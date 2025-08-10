@@ -54,7 +54,6 @@ class DockerfileTemplate(string.Template):
 class DevEnvironmentConfig:
     PROFILES: dict[str, dict[str, typing.Any]] = {
         'dev-rpm-full': {
-            'name': 'dev-rpm-full',
             'docker': {
                 'distro': 'rpm',
                 'base_image': 'almalinux:9',
@@ -87,7 +86,6 @@ class DevEnvironmentConfig:
             ],
         },
         'dev-python-minimal': {
-            'name': 'dev-python-minimal',
             'docker': {
                 'distro': 'rpm',
                 'container_user': 'blue',
@@ -97,13 +95,11 @@ class DevEnvironmentConfig:
             'tools': ['init', 'python', 'tools', 'dotfiles'],
             'dotfiles': ['.bashrc', '.gitconfig'],
         },
-        'ml-development': {
-            'description': 'Machine Learning development environment',
+        'ml-dev': {
             'docker': {
-                'base_image': 'nvidia/cuda:11.8-runtime-ubuntu20.04',
+                'base_image': 'nvidia/cuda:11.8.0-runtime-ubi8',
                 'container_user': 'developer',
                 'working_directory': '/home/developer/workspace',
-                'exposed_ports': [8888, 6006],
                 'volumes': [
                     {
                         'source': './ml-workspace',
@@ -113,7 +109,7 @@ class DevEnvironmentConfig:
                 ],
             },
             'dotfiles': ['.bashrc', '.vimrc', '.gitconfig'],
-            'tools': ['python', 'starship', 'tools', 'neovim'],
+            'tools': ['python', 'starship', 'neovim'],
         },
     }
 
