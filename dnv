@@ -77,6 +77,7 @@ class DevEnvironmentConfig:
                 'dotfiles',
                 'ssh',
                 'docker',
+                'sdkman',
             ],
             'dotfiles': [
                 '.bashrc',
@@ -345,6 +346,14 @@ class DevEnvironmentConfig:
             },
             'pnpm': {
                 'setup': [f'curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={self.versions["pnpm"]} sh -']
+            },
+            'sdkman': {
+                'prepare': [distro_config['curl_install']],
+                'setup': [
+                    'curl -s "https://get.sdkman.io" | bash',
+                    'source "$HOME/.sdkman/bin/sdkman-init.sh"'
+                ],
+                'env': [{'SDKMAN_DIR': '$HOME/.sdkman'}],
             },
             'docker': {'setup': [distro_config['docker_install']]},
             'cleanup': {'setup': distro_config['cleanup']},
