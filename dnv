@@ -56,6 +56,7 @@ class DevEnvironmentConfig:
         'dev-rpm-full': {
             'docker': {
                 'distro': 'rpm',
+                'arch': 'x86_64',
                 'base_image': 'almalinux:9',
                 'container_user': 'blue',
                 # 'exposed_ports': [8080, 3000, 5000],
@@ -89,6 +90,7 @@ class DevEnvironmentConfig:
         'dev-python-minimal': {
             'docker': {
                 'distro': 'rpm',
+                'arch': 'x86_64',
                 'container_user': 'blue',
                 'exposed_ports': [8000],
                 'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
@@ -98,6 +100,8 @@ class DevEnvironmentConfig:
         },
         'ml-dev': {
             'docker': {
+                'distro': 'rpm',
+                'arch': 'x86_64',
                 'base_image': 'nvidia/cuda:11.8.0-runtime-ubi8',
                 'container_user': 'developer',
                 'working_directory': '/home/developer/workspace',
@@ -115,7 +119,7 @@ class DevEnvironmentConfig:
     }
 
     @classmethod
-    def from_profile(cls, profile: str, arch_override: str | None = None) -> 'DevEnvironmentConfig':
+    def from_profile(cls, profile: str) -> 'DevEnvironmentConfig':
         profile_data = cls.PROFILES.get(profile)
         if not profile_data:
             available = list(cls.PROFILES.keys())
@@ -125,7 +129,7 @@ class DevEnvironmentConfig:
 
         return cls(
             distro=docker_config.get('distro', 'rpm'),
-            arch_override=arch_override,
+            arch=docker_config.get('arch', 'x86_64'),
             username=docker_config.get('container_user', 'blue'),
             profile=profile,
         )
@@ -133,7 +137,7 @@ class DevEnvironmentConfig:
     def __init__(
         self,
         distro: str = 'rpm',
-        arch_override: str | None = None,
+        arch: str = 'x86_64',
         username: str = 'blue',
         profile: str | None = None,
     ) -> None:
@@ -168,7 +172,7 @@ class DevEnvironmentConfig:
             },
         }
 
-        self.host_arch = self._get_platform_arch() if arch_override is None else arch_override
+        self.host_arch = arch
         self.current_arch_map = self.arch_mappings.get(self.host_arch, self.arch_mappings['x86_64'])
 
         self._setup_distro_config()
@@ -187,12 +191,6 @@ class DevEnvironmentConfig:
             return 'aarch64'
         else:
             return machine
-
-    def set_architecture(self, arch_override: str) -> 'DevEnvironmentConfig':
-        self.host_arch = arch_override
-        self.current_arch_map = self.arch_mappings.get(self.host_arch, self.arch_mappings['x86_64'])
-        self.conf = self._generate_conf()
-        return self
 
     def _setup_distro_config(self) -> None:
         profile_data = {}
@@ -351,7 +349,7 @@ class DevEnvironmentConfig:
                 'prepare': [distro_config['curl_install']],
                 'setup': [
                     'curl -s "https://get.sdkman.io" | bash',
-                    'source "$HOME/.sdkman/bin/sdkman-init.sh"'
+                    'source $HOME/.sdkman/bin/sdkman-init.sh'
                 ],
                 'env': [{'SDKMAN_DIR': '$HOME/.sdkman'}],
             },
@@ -903,7 +901,7 @@ class CommandHandler:
             logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
             sys.exit(1)
 
-        config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
+        config = DevEnvironmentConfig.from_profile(self.args.profile)
         dockerfile_path = get_dockerfile_name(config)
 
         image_name = ImageBuilder.get_image_tag(config)
@@ -934,7 +932,7 @@ class CommandHandler:
             logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
             sys.exit(1)
 
-        config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
+        config = DevEnvironmentConfig.from_profile(self.args.profile)
         dockerfile_path = get_dockerfile_name(config)
         self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(dockerfile_path))
 
@@ -950,7 +948,7 @@ class CommandHandler:
             logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
             sys.exit(1)
 
-        config = DevEnvironmentConfig.from_profile(self.args.profile, self.args.arch)
+        config = DevEnvironmentConfig.from_profile(self.args.profile)
 
         dockerfile_content = DockerfileBuilder(config).build()
         filename = f'Dockerfile.{config.profile}.{config.distro}.{config.host_arch}'
@@ -1038,7 +1036,6 @@ def main() -> None:
         help='profile name to use (default: dev-rpm-full)',
     )
     spin_parser.add_argument('--name', help='container name')
-    spin_parser.add_argument('--arch', choices=['x86_64', 'aarch64'])
 
     # build command args
     build_parser = subparsers.add_parser('build', help='build development environment')
@@ -1047,9 +1044,6 @@ def main() -> None:
         default='dev-rpm-full',
         help='profile name to use (default: dev-rpm-full)',
     )
-    build_parser.add_argument('--dockerfile', help='output Dockerfile path')
-    build_parser.add_argument('--arch', choices=['x86_64', 'aarch64'])
-    build_parser.add_argument('--distro', choices=['rpm', 'deb'], default='rpm')
 
     # craft command args
     craft_parser = subparsers.add_parser('craft', help='generate Dockerfile')
@@ -1058,7 +1052,6 @@ def main() -> None:
         default='dev-rpm-full',
         help='profile name to use (default: dev-rpm-full)',
     )
-    craft_parser.add_argument('--arch', choices=['x86_64', 'aarch64'])
 
     # dotsync command args
     dotsync_parser = subparsers.add_parser('dotsync', help='sync dotfiles')
