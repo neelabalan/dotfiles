@@ -44,6 +44,26 @@ def _init_logger():
 logger = _init_logger()
 
 
+def get_host_architecture() -> str:
+    machine = platform.machine().lower()
+    if machine in ('x86_64', 'amd64'):
+        return 'x86_64'
+    elif machine in ('aarch64', 'arm64'):
+        return 'aarch64'
+    else:
+        return 'x86_64'
+
+
+def get_docker_platform_flag(profile_arch: str) -> list[str]:
+    host_arch = get_host_architecture()
+    if host_arch != profile_arch:
+        if profile_arch == 'x86_64':
+            return ['--platform', 'linux/amd64']
+        elif profile_arch == 'aarch64':
+            return ['--platform', 'linux/arm64']
+    return []
+
+
 class DockerfileTemplate(string.Template):
     delimiter = '<$>'
 
@@ -53,7 +73,7 @@ class DockerfileTemplate(string.Template):
 # - add arch as well?
 class DevEnvironmentConfig:
     PROFILES: dict[str, dict[str, typing.Any]] = {
-        'dev-rpm-full': {
+        'workstation': {
             'docker': {
                 'distro': 'rpm',
                 'arch': 'x86_64',
@@ -87,7 +107,39 @@ class DevEnvironmentConfig:
                 '.tmux.conf',
             ],
         },
-        'dev-python-minimal': {
+        'workstation-arm': {
+            'docker': {
+                'distro': 'rpm',
+                'arch': 'aarch64',
+                'base_image': 'almalinux:9',
+                'container_user': 'blue',
+                'volumes': [
+                    {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
+                ],
+            },
+            'tools': [
+                'init',
+                'python',
+                'dotfiles',
+                'node',
+                'rust',
+                'go',
+                'tools',
+                'neovim',
+                'starship',
+                'dotfiles',
+                'ssh',
+                'docker',
+                'sdkman',
+            ],
+            'dotfiles': [
+                '.bashrc',
+                '.config/starship.toml',
+                '.config/nvim',
+                '.tmux.conf',
+            ],
+        },
+        'python-minimal': {
             'docker': {
                 'distro': 'rpm',
                 'arch': 'x86_64',
@@ -98,7 +150,18 @@ class DevEnvironmentConfig:
             'tools': ['init', 'python', 'tools', 'dotfiles'],
             'dotfiles': ['.bashrc', '.gitconfig'],
         },
-        'ml-dev': {
+        'python-minimal-arm': {
+            'docker': {
+                'distro': 'rpm',
+                'arch': 'aarch64',
+                'container_user': 'blue',
+                'exposed_ports': [8000],
+                'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
+            },
+            'tools': ['init', 'python', 'tools', 'dotfiles'],
+            'dotfiles': ['.bashrc', '.gitconfig'],
+        },
+        'ml-cuda': {
             'docker': {
                 'distro': 'rpm',
                 'arch': 'x86_64',
@@ -183,15 +246,6 @@ class DevEnvironmentConfig:
             return self.PROFILES[self.profile]
         return {}
 
-    def _get_platform_arch(self) -> str:
-        machine = platform.machine().lower()
-        if machine in ['x86_64', 'amd64']:
-            return 'x86_64'
-        elif machine in ['aarch64', 'arm64']:
-            return 'aarch64'
-        else:
-            return machine
-
     def _setup_distro_config(self) -> None:
         profile_data = {}
         if self.profile and self.profile in self.PROFILES:
@@ -272,7 +326,6 @@ class DevEnvironmentConfig:
         return config
 
     def _generate_conf(self) -> dict:
-        arch_map = self.current_arch_map
         distro_config = self.current_distro_config
 
         all_tools = {
@@ -306,9 +359,9 @@ class DevEnvironmentConfig:
                 'prepare': [distro_config['tar_install']],
                 'setup': list(distro_config['tool_setup'])
                 + [
-                    f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{self.versions['eza']}/eza_{arch_map['eza_target']}.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
+                    f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{self.versions['eza']}/eza_{self.current_arch_map['eza_target']}.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
                     uv tool install --python 3.11 ipython && \\
-                    curl -LO 'https://dl.k8s.io/release/{self.versions['kubectl']}/bin/linux/{arch_map['kubectl_arch']}/kubectl' && \\
+                    curl -LO 'https://dl.k8s.io/release/{self.versions['kubectl']}/bin/linux/{self.current_arch_map['kubectl_arch']}/kubectl' && \\
                     sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
                 ],
             },
@@ -325,18 +378,18 @@ class DevEnvironmentConfig:
             'neovim': {
                 'prepare': [distro_config['curl_install']],
                 'setup': [
-                    f"""curl -LO https://github.com/neovim/neovim/releases/download/v{self.versions['neovim']}/nvim-linux-{arch_map['nvim_arch']}.tar.gz && \\
-                        sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{arch_map['nvim_arch']}.tar.gz && \\
-                        sudo ln -sf /opt/nvim-linux-{arch_map['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
-                        rm nvim-linux-{arch_map['nvim_arch']}.tar.gz"""
+                    f"""curl -LO https://github.com/neovim/neovim/releases/download/v{self.versions['neovim']}/nvim-linux-{self.current_arch_map['nvim_arch']}.tar.gz && \\
+                        sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{self.current_arch_map['nvim_arch']}.tar.gz && \\
+                        sudo ln -sf /opt/nvim-linux-{self.current_arch_map['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
+                        rm nvim-linux-{self.current_arch_map['nvim_arch']}.tar.gz"""
                 ],
             },
             'go': {
                 'prepare': [distro_config['curl_install']],
                 'setup': [
-                    f"""curl -LO https://go.dev/dl/{self.versions['go']}.linux-{arch_map['go_arch']}.tar.gz && \\
-                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {self.versions['go']}.linux-{arch_map['go_arch']}.tar.gz && \\
-                    rm {self.versions['go']}.linux-{arch_map['go_arch']}.tar.gz && \\
+                    f"""curl -LO https://go.dev/dl/{self.versions['go']}.linux-{self.current_arch_map['go_arch']}.tar.gz && \\
+                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {self.versions['go']}.linux-{self.current_arch_map['go_arch']}.tar.gz && \\
+                    rm {self.versions['go']}.linux-{self.current_arch_map['go_arch']}.tar.gz && \\
                     echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \\
                     source $HOME/.bashrc""",
                 ],
@@ -645,9 +698,10 @@ class ArtifactRepository:
 
 
 class ImageBuilder:
-    def __init__(self, name: str, dockerfile_path: pathlib.Path) -> None:
+    def __init__(self, name: str, dockerfile_path: pathlib.Path, arch: str | None = None) -> None:
         self.name = name
         self.dockerfile_path = dockerfile_path
+        self.arch = arch
 
     @staticmethod
     def get_image_tag(config: DevEnvironmentConfig) -> str:
@@ -705,8 +759,12 @@ class ImageBuilder:
             self.name,
             '-f',
             str(self.dockerfile_path),
-            '.',
         ]
+
+        if self.arch:
+            build_cmd.extend(get_docker_platform_flag(self.arch))
+
+        build_cmd.append('.')
         logger.debug(f'running: {" ".join(build_cmd)}')
 
         build_result = subprocess.run(build_cmd, capture_output=True, text=True)
@@ -740,8 +798,12 @@ class DevContainerManager:
         return result.returncode == 0 and result.stdout.strip() == 'true'
 
     @staticmethod
-    def start(image_name: str, name: str | None, docker_config: dict) -> str | None:
+    def start(image_name: str, name: str | None, docker_config: dict, arch: str | None = None) -> str | None:
         cmd = ['docker', 'run', '-it', '--label', 'devenv=true']
+
+        # Add platform flag if cross-platform run is needed
+        if arch:
+            cmd.extend(get_docker_platform_flag(arch))
 
         if name:
             cmd.extend(['--name', name, '--label', f'devenv.container={name}'])
@@ -903,7 +965,7 @@ class CommandHandler:
         dockerfile_path = get_dockerfile_name(config)
 
         image_name = ImageBuilder.get_image_tag(config)
-        image_builder = ImageBuilder(image_name, dockerfile_path)
+        image_builder = ImageBuilder(image_name, dockerfile_path, config.host_arch)
 
         if not image_builder.is_built():
             logger.info(f'image {image_name} not found, building...')
@@ -922,7 +984,7 @@ class CommandHandler:
 
         # This call will replace the current Python process with the Docker command
         # and never return - the user will be dropped directly into the container
-        DevContainerManager.start(image_name, self.args.name, config.get_profile_data().get('docker', {}))
+        DevContainerManager.start(image_name, self.args.name, config.get_profile_data().get('docker', {}), config.host_arch)
 
     def handle_build(self) -> None:
         if self.args.profile not in DevEnvironmentConfig.PROFILES:
@@ -934,7 +996,7 @@ class CommandHandler:
         dockerfile_path = get_dockerfile_name(config)
         self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(dockerfile_path))
 
-        image_builder = ImageBuilder(ImageBuilder.get_image_tag(config), dockerfile_path)
+        image_builder = ImageBuilder(ImageBuilder.get_image_tag(config), dockerfile_path, config.host_arch)
         if not image_builder.build():
             logger.error('failed to build image')
             sys.exit(1)
@@ -1030,8 +1092,8 @@ def main() -> None:
     spin_parser = subparsers.add_parser('spin', help='spin up development environment')
     spin_parser.add_argument(
         '--profile',
-        default='dev-rpm-full',
-        help='profile name to use (default: dev-rpm-full)',
+        default='workstation',
+        help='profile name to use (default: workstation)',
     )
     spin_parser.add_argument('--name', help='container name')
 
@@ -1039,16 +1101,16 @@ def main() -> None:
     build_parser = subparsers.add_parser('build', help='build development environment')
     build_parser.add_argument(
         '--profile',
-        default='dev-rpm-full',
-        help='profile name to use (default: dev-rpm-full)',
+        default='workstation',
+        help='profile name to use (default: workstation)',
     )
 
     # craft command args
     craft_parser = subparsers.add_parser('craft', help='generate Dockerfile')
     craft_parser.add_argument(
         '--profile',
-        default='dev-rpm-full',
-        help='profile name to use (default: dev-rpm-full)',
+        default='workstation',
+        help='profile name to use (default: workstation)',
     )
 
     # dotsync command args
@@ -1060,8 +1122,8 @@ def main() -> None:
     install_parser.add_argument('--source-dir', help='source directory')
     install_parser.add_argument(
         '--profile',
-        default='dev-rpm-full',
-        help='profile name to use (default: dev-rpm-full)',
+        default='workstation',
+        help='profile name to use (default: workstation)',
     )
 
     # ls command args
