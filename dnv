@@ -295,7 +295,7 @@ class DevEnvironmentConfig:
                 'setup': [
                     f"""curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{self.versions['nvm']}/install.sh | bash && \\
                     export NVM_DIR=$HOME/.nvm && \\
-                    bash -c 'source $NVM_DIR/nvm.sh && nvm install 22'"""
+                    source $NVM_DIR/nvm.sh && nvm install 22"""
                 ],
             },
             'rust': {
@@ -349,9 +349,7 @@ class DevEnvironmentConfig:
                 'prepare': [distro_config['curl_install']],
                 'setup': [
                     'curl -s "https://get.sdkman.io" | bash',
-                    'source $HOME/.sdkman/bin/sdkman-init.sh'
                 ],
-                'env': [{'SDKMAN_DIR': '$HOME/.sdkman'}],
             },
             'docker': {'setup': [distro_config['docker_install']]},
             'cleanup': {'setup': distro_config['cleanup']},
@@ -397,7 +395,7 @@ class DockerfileBuilder:
         # NOTE: This Dockerfile is generated. Do not edit manually.
         FROM <$>base_image
         SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
-        ENV SHELL /bin/bash
+        ENV SHELL=/bin/bash
 
         RUN <$>update && \\
             <$>install_sudo
