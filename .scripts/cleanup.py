@@ -62,34 +62,33 @@ def confirm_action(prompt: str) -> bool:
 
 def scan_folders(target_dir: str, folder_types: list[str]) -> dict:
     target_path = pathlib.Path(target_dir)
-    logging.info(f'Scanning for {", ".join(folder_types)} in {target_path}')
+    logging.info(f'scanning for {", ".join(folder_types)} in {target_path}')
 
     items = []
     total_size = 0
-
     for folder_type in folder_types:
-        logging.debug(f'Searching for {folder_type} folders')
+        logging.debug(f'searching for {folder_type} folders')
         for folder_path in target_path.rglob(folder_type):
             if folder_path.is_dir():
                 size = get_folder_size(folder_path)
                 items.append({'path': folder_path, 'size': size, 'type': 'folder'})
                 total_size += size
-                logging.debug(f'Found: {folder_path} ({format_size(size)})')
+                logging.debug(f'found: {folder_path} ({format_size(size)})')
 
     return {'items': items, 'total_size': total_size, 'total_count': len(items)}
 
 
 def show_cleanup_plan(plan: dict) -> None:
     if not plan['items']:
-        logging.info('Nothing found to clean')
+        logging.info('nothing found to clean')
         return
 
-    logging.info('Found the following items to clean:')
+    logging.info('found the following items to clean:')
     for item in plan['items']:
         logging.info(f'  {item["path"]} ({format_size(item["size"])})')
 
-    logging.info(f'Total items: {plan["total_count"]}')
-    logging.info(f'Total size: {format_size(plan["total_size"])}')
+    logging.info(f'total items: {plan["total_count"]}')
+    logging.info(f'total size: {format_size(plan["total_size"])}')
 
 
 def execute_folder_cleanup(plan: dict, dry_run: bool) -> dict:
@@ -97,7 +96,7 @@ def execute_folder_cleanup(plan: dict, dry_run: bool) -> dict:
         logging.info('DRY RUN: Would clean the above items')
         return {'success_count': len(plan['items']), 'failure_count': 0, 'size_freed': plan['total_size'], 'errors': []}
 
-    logging.info('Cleaning items...')
+    logging.info('cleaning items...')
     success_count = 0
     failure_count = 0
     size_freed = 0
@@ -122,7 +121,7 @@ def clean_folders(target_dir: str, folder_types: list[str], dry_run: bool, auto_
     target_path = pathlib.Path(target_dir)
 
     if not target_path.exists():
-        logging.error(f"Directory '{target_dir}' does not exist")
+        logging.error(f"directory '{target_dir}' does not exist")
         sys.exit(1)
 
     if not target_path.is_dir():
@@ -136,17 +135,17 @@ def clean_folders(target_dir: str, folder_types: list[str], dry_run: bool, auto_
         return {'success_count': 0, 'size_freed': 0}
 
     if not auto_confirm and not confirm_action('Are you sure you want to clean these items?'):
-        logging.info('Operation cancelled.')
+        logging.info('operation cancelled.')
         return {'success_count': 0, 'size_freed': 0}
 
     result = execute_folder_cleanup(plan, dry_run)
 
     if not dry_run:
         if result['success_count'] > 0:
-            logging.info(f'Successfully cleaned {result["success_count"]} item(s)')
-            logging.info(f'Freed {format_size(result["size_freed"])}')
+            logging.info(f'successfully cleaned {result["success_count"]} item(s)')
+            logging.info(f'freed {format_size(result["size_freed"])}')
         if result['failure_count'] > 0:
-            logging.warning(f'⚠ Failed to clean {result["failure_count"]} item(s)')
+            logging.warning(f'failed to clean {result["failure_count"]} item(s)')
 
     return result
 
@@ -165,12 +164,12 @@ def run_docker_command(command: list[str], dry_run: bool = False) -> tuple[bool,
         logging.error(f'Docker command failed: {e.stderr}')
         return False, e.stderr
     except FileNotFoundError:
-        logging.error('Docker not found')
-        return False, 'Docker not found'
+        logging.error('docker not found')
+        return False, 'docker not found'
 
 
-def clean_docker(operations: list[str], dry_run: bool, auto_confirm: bool) -> dict:
-    available_operations = {
+def clean_docker(docker_types: list[str], dry_run: bool, auto_confirm: bool) -> dict:
+    available_types = {
         'containers': ('Remove stopped containers', ['docker', 'container', 'prune', '-f']),
         'images': ('Remove unused images', ['docker', 'image', 'prune', '-a', '-f']),
         'volumes': ('Remove unused volumes', ['docker', 'volume', 'prune', '-f']),
@@ -179,42 +178,42 @@ def clean_docker(operations: list[str], dry_run: bool, auto_confirm: bool) -> di
         'system': ('Remove all unused artifacts', ['docker', 'system', 'prune', '-f']),
     }
 
-    logging.info('Docker cleanup operations:')
+    logging.info('docker cleanup operations:')
     selected_ops = []
-    for op in operations:
-        if op in available_operations:
-            desc, cmd = available_operations[op]
+    for docker_type in docker_types:
+        if docker_type in available_types:
+            desc, cmd = available_types[docker_type]
             logging.info(f'  - {desc}')
-            selected_ops.append((op, desc, cmd))
+            selected_ops.append((docker_type, desc, cmd))
         else:
-            logging.warning(f"Unknown operation '{op}'")
+            logging.warning(f"unknown docker type '{docker_type}'")
 
     if not selected_ops:
-        logging.warning('No valid operations selected')
+        logging.warning('no valid types selected')
         return {'success_count': 0}
 
     if not auto_confirm and not confirm_action('Proceed with Docker cleanup?'):
-        logging.info('Operation cancelled.')
+        logging.info('operation cancelled.')
         return {'success_count': 0}
 
     success_count = 0
     failure_count = 0
 
     for op_name, desc, cmd in selected_ops:
-        logging.info(f'Running: {desc}')
+        logging.info(f'running: {desc}')
         success, output = run_docker_command(cmd, dry_run)
         if success:
             success_count += 1
             if output.strip() and not dry_run:
-                logging.info(f'Output: {output.strip()}')
+                logging.info(f'output: {output.strip()}')
         else:
             failure_count += 1
-            logging.error(f'Failed: {output}')
+            logging.error(f'failed: {output}')
 
     if not dry_run:
-        logging.info(f'Completed {success_count} operation(s)')
+        logging.info(f'completed {success_count} operation(s)')
         if failure_count > 0:
-            logging.warning(f'⚠ Failed {failure_count} operation(s)')
+            logging.warning(f'⚠ failed {failure_count} operation(s)')
 
     return {'success_count': success_count, 'failure_count': failure_count}
 
@@ -227,7 +226,7 @@ def clean_cache(cache_types: list[str], dry_run: bool, auto_confirm: bool) -> di
         'uv': ('Clear uv cache', ['uv', 'cache', 'clean']),
     }
 
-    logging.info('Cache cleanup operations:')
+    logging.info('cache cleanup operations:')
     selected_ops = []
     for cache_type in cache_types:
         if cache_type in cache_commands:
@@ -235,24 +234,24 @@ def clean_cache(cache_types: list[str], dry_run: bool, auto_confirm: bool) -> di
             logging.info(f'  - {desc}')
             selected_ops.append((cache_type, desc, cmd))
         else:
-            logging.warning(f"Unknown cache type '{cache_type}'")
+            logging.warning(f"unknown cache type '{cache_type}'")
 
     if not selected_ops:
-        logging.warning('No valid cache types selected')
+        logging.warning('no valid types selected')
         return {'success_count': 0}
 
     if not auto_confirm and not confirm_action('Proceed with cache cleanup?'):
-        logging.info('Operation cancelled.')
+        logging.info('operation cancelled.')
         return {'success_count': 0}
 
     success_count = 0
     failure_count = 0
 
     for cache_type, desc, cmd in selected_ops:
-        logging.info(f'Running: {desc}')
+        logging.info(f'running: {desc}')
 
         if dry_run:
-            logging.info(f'DRY RUN: Would run: {" ".join(cmd)}')
+            logging.info(f'dry run: would run: {" ".join(cmd)}')
             success_count += 1
             continue
 
@@ -260,18 +259,18 @@ def clean_cache(cache_types: list[str], dry_run: bool, auto_confirm: bool) -> di
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             success_count += 1
             if result.stdout.strip():
-                logging.info(f'Output: {result.stdout.strip()}')
+                logging.info(f'output: {result.stdout.strip()}')
         except subprocess.CalledProcessError as e:
             failure_count += 1
-            logging.error(f'Failed: {e.stderr.strip() if e.stderr else "Command failed"}')
+            logging.error(f'failed: {e.stderr.strip() if e.stderr else "command failed"}')
         except FileNotFoundError:
             failure_count += 1
-            logging.error(f'Failed: {cache_type} not found')
+            logging.error(f'failed: {cache_type} not found')
 
     if not dry_run:
-        logging.info(f'Completed {success_count} operation(s)')
+        logging.info(f'completed {success_count} operation(s)')
         if failure_count > 0:
-            logging.warning(f'⚠ Failed {failure_count} operation(s)')
+            logging.warning(f'⚠ failed {failure_count} operation(s)')
 
     return {'success_count': success_count, 'failure_count': failure_count}
 
@@ -284,7 +283,7 @@ Examples:
   %(prog)s folders                                    # Clean .venv, node_modules, __pycache__ in current dir
   %(prog)s folders ~/projects --types .venv          # Clean only .venv folders in ~/projects
   %(prog)s folders --dry-run --verbose               # See what would be cleaned with debug output
-  %(prog)s docker --operations containers images     # Clean Docker containers and images
+  %(prog)s docker --types containers images       # Clean Docker containers and images
   %(prog)s docker --yes --dry-run                    # Preview Docker cleanup without confirmation
   %(prog)s cache --types npm pip                     # Clean npm and pip caches
   %(prog)s cache --verbose                           # Clean all caches with detailed output
@@ -326,10 +325,10 @@ Environment Variables:
         description='Remove unused Docker resources to free up disk space',
     )
     docker_parser.add_argument(
-        '--operations',
+        '--types',
         nargs='+',
         default=['containers', 'images', 'volumes'],
-        help='Operations: containers, images, volumes, networks, cache, system (default: containers images volumes)',
+        help='Docker types: containers, images, volumes, networks, cache, system (default: containers images volumes)',
     )
 
     cache_parser = subparsers.add_parser(
@@ -355,7 +354,7 @@ Environment Variables:
     if args.command == 'folders':
         clean_folders(args.path, args.types, args.dry_run, args.yes)
     elif args.command == 'docker':
-        clean_docker(args.operations, args.dry_run, args.yes)
+        clean_docker(args.types, args.dry_run, args.yes)
     elif args.command == 'cache':
         clean_cache(args.types, args.dry_run, args.yes)
 
