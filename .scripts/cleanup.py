@@ -1,0 +1,364 @@
+#!/usr/bin/env python3.11
+
+import argparse
+import datetime
+import logging
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+
+
+def setup_logging(verbose: bool = False) -> None:
+    debug_enabled = os.getenv('CLEANUP_DEBUG', 'false').lower() == 'true' or verbose
+    level = logging.DEBUG if debug_enabled else logging.INFO
+
+    handlers = []
+
+    console_handler = logging.StreamHandler()
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    console_handler.setFormatter(console_formatter)
+    handlers.append(console_handler)
+
+    if debug_enabled:
+        log_dir = pathlib.Path.home() / '.cleanup' / 'logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_dir / f'cleanup_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(funcName)s - %(message)s')
+        file_handler.setFormatter(file_formatter)
+        handlers.append(file_handler)
+
+    logging.basicConfig(level=level, handlers=handlers, force=True)
+
+
+def get_folder_size(folder_path: pathlib.Path) -> int:
+    total_size = 0
+    try:
+        for dirpath, _, filenames in os.walk(folder_path):
+            for filename in filenames:
+                file_path = pathlib.Path(dirpath) / filename
+                try:
+                    total_size += file_path.stat().st_size
+                except (OSError, FileNotFoundError):
+                    pass
+    except (OSError, PermissionError):
+        pass
+    return total_size
+
+
+def format_size(size_bytes: int) -> str:
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f'{size_bytes:.1f} {unit}'
+        size_bytes /= 1024.0
+    return f'{size_bytes:.1f} TB'
+
+
+def confirm_action(prompt: str) -> bool:
+    response = input(f'{prompt} [y/N]: ').strip().lower()
+    return response in ['y', 'yes']
+
+
+def scan_folders(target_dir: str, folder_types: list[str]) -> dict:
+    target_path = pathlib.Path(target_dir)
+    logging.info(f'Scanning for {", ".join(folder_types)} in {target_path}')
+
+    items = []
+    total_size = 0
+
+    for folder_type in folder_types:
+        logging.debug(f'Searching for {folder_type} folders')
+        for folder_path in target_path.rglob(folder_type):
+            if folder_path.is_dir():
+                size = get_folder_size(folder_path)
+                items.append({'path': folder_path, 'size': size, 'type': 'folder'})
+                total_size += size
+                logging.debug(f'Found: {folder_path} ({format_size(size)})')
+
+    return {'items': items, 'total_size': total_size, 'total_count': len(items)}
+
+
+def show_cleanup_plan(plan: dict) -> None:
+    if not plan['items']:
+        logging.info('Nothing found to clean')
+        return
+
+    logging.info('Found the following items to clean:')
+    for item in plan['items']:
+        logging.info(f'  {item["path"]} ({format_size(item["size"])})')
+
+    logging.info(f'Total items: {plan["total_count"]}')
+    logging.info(f'Total size: {format_size(plan["total_size"])}')
+
+
+def execute_folder_cleanup(plan: dict, dry_run: bool) -> dict:
+    if dry_run:
+        logging.info('DRY RUN: Would clean the above items')
+        return {'success_count': len(plan['items']), 'failure_count': 0, 'size_freed': plan['total_size'], 'errors': []}
+
+    logging.info('Cleaning items...')
+    success_count = 0
+    failure_count = 0
+    size_freed = 0
+    errors = []
+
+    for item in plan['items']:
+        try:
+            logging.info(f'Removing: {item["path"]}')
+            shutil.rmtree(item['path'])
+            success_count += 1
+            size_freed += item['size']
+        except Exception as e:
+            error_msg = f'Error removing {item["path"]}: {e}'
+            logging.error(error_msg)
+            errors.append(error_msg)
+            failure_count += 1
+
+    return {'success_count': success_count, 'failure_count': failure_count, 'size_freed': size_freed, 'errors': errors}
+
+
+def clean_folders(target_dir: str, folder_types: list[str], dry_run: bool, auto_confirm: bool) -> dict:
+    target_path = pathlib.Path(target_dir)
+
+    if not target_path.exists():
+        logging.error(f"Directory '{target_dir}' does not exist")
+        sys.exit(1)
+
+    if not target_path.is_dir():
+        logging.error(f"'{target_dir}' is not a directory")
+        sys.exit(1)
+
+    plan = scan_folders(target_dir, folder_types)
+    show_cleanup_plan(plan)
+
+    if not plan['items']:
+        return {'success_count': 0, 'size_freed': 0}
+
+    if not auto_confirm and not confirm_action('Are you sure you want to clean these items?'):
+        logging.info('Operation cancelled.')
+        return {'success_count': 0, 'size_freed': 0}
+
+    result = execute_folder_cleanup(plan, dry_run)
+
+    if not dry_run:
+        if result['success_count'] > 0:
+            logging.info(f'Successfully cleaned {result["success_count"]} item(s)')
+            logging.info(f'Freed {format_size(result["size_freed"])}')
+        if result['failure_count'] > 0:
+            logging.warning(f'⚠ Failed to clean {result["failure_count"]} item(s)')
+
+    return result
+
+
+def run_docker_command(command: list[str], dry_run: bool = False) -> tuple[bool, str]:
+    logging.debug(f'Running Docker command: {" ".join(command)}')
+
+    if dry_run:
+        logging.info(f'DRY RUN: Would run: {" ".join(command)}')
+        return True, 'dry run'
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Docker command failed: {e.stderr}')
+        return False, e.stderr
+    except FileNotFoundError:
+        logging.error('Docker not found')
+        return False, 'Docker not found'
+
+
+def clean_docker(operations: list[str], dry_run: bool, auto_confirm: bool) -> dict:
+    available_operations = {
+        'containers': ('Remove stopped containers', ['docker', 'container', 'prune', '-f']),
+        'images': ('Remove unused images', ['docker', 'image', 'prune', '-a', '-f']),
+        'volumes': ('Remove unused volumes', ['docker', 'volume', 'prune', '-f']),
+        'networks': ('Remove unused networks', ['docker', 'network', 'prune', '-f']),
+        'cache': ('Remove build cache', ['docker', 'buildx', 'prune', '-f']),
+        'system': ('Remove all unused artifacts', ['docker', 'system', 'prune', '-f']),
+    }
+
+    logging.info('Docker cleanup operations:')
+    selected_ops = []
+    for op in operations:
+        if op in available_operations:
+            desc, cmd = available_operations[op]
+            logging.info(f'  - {desc}')
+            selected_ops.append((op, desc, cmd))
+        else:
+            logging.warning(f"Unknown operation '{op}'")
+
+    if not selected_ops:
+        logging.warning('No valid operations selected')
+        return {'success_count': 0}
+
+    if not auto_confirm and not confirm_action('Proceed with Docker cleanup?'):
+        logging.info('Operation cancelled.')
+        return {'success_count': 0}
+
+    success_count = 0
+    failure_count = 0
+
+    for op_name, desc, cmd in selected_ops:
+        logging.info(f'Running: {desc}')
+        success, output = run_docker_command(cmd, dry_run)
+        if success:
+            success_count += 1
+            if output.strip() and not dry_run:
+                logging.info(f'Output: {output.strip()}')
+        else:
+            failure_count += 1
+            logging.error(f'Failed: {output}')
+
+    if not dry_run:
+        logging.info(f'Completed {success_count} operation(s)')
+        if failure_count > 0:
+            logging.warning(f'⚠ Failed {failure_count} operation(s)')
+
+    return {'success_count': success_count, 'failure_count': failure_count}
+
+
+def clean_cache(cache_types: list[str], dry_run: bool, auto_confirm: bool) -> dict:
+    cache_commands = {
+        'npm': ('Clear npm cache', ['npm', 'cache', 'clean', '--force']),
+        'pip': ('Clear pip cache', ['pip', 'cache', 'purge']),
+        'brew': ('Clean brew cache', ['brew', 'cleanup', '--prune=all']),
+        'uv': ('Clear uv cache', ['uv', 'cache', 'clean']),
+    }
+
+    logging.info('Cache cleanup operations:')
+    selected_ops = []
+    for cache_type in cache_types:
+        if cache_type in cache_commands:
+            desc, cmd = cache_commands[cache_type]
+            logging.info(f'  - {desc}')
+            selected_ops.append((cache_type, desc, cmd))
+        else:
+            logging.warning(f"Unknown cache type '{cache_type}'")
+
+    if not selected_ops:
+        logging.warning('No valid cache types selected')
+        return {'success_count': 0}
+
+    if not auto_confirm and not confirm_action('Proceed with cache cleanup?'):
+        logging.info('Operation cancelled.')
+        return {'success_count': 0}
+
+    success_count = 0
+    failure_count = 0
+
+    for cache_type, desc, cmd in selected_ops:
+        logging.info(f'Running: {desc}')
+
+        if dry_run:
+            logging.info(f'DRY RUN: Would run: {" ".join(cmd)}')
+            success_count += 1
+            continue
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            success_count += 1
+            if result.stdout.strip():
+                logging.info(f'Output: {result.stdout.strip()}')
+        except subprocess.CalledProcessError as e:
+            failure_count += 1
+            logging.error(f'Failed: {e.stderr.strip() if e.stderr else "Command failed"}')
+        except FileNotFoundError:
+            failure_count += 1
+            logging.error(f'Failed: {cache_type} not found')
+
+    if not dry_run:
+        logging.info(f'Completed {success_count} operation(s)')
+        if failure_count > 0:
+            logging.warning(f'⚠ Failed {failure_count} operation(s)')
+
+    return {'success_count': success_count, 'failure_count': failure_count}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description='Development environment cleanup tool',
+        epilog="""
+Examples:
+  %(prog)s folders                                    # Clean .venv, node_modules, __pycache__ in current dir
+  %(prog)s folders ~/projects --types .venv          # Clean only .venv folders in ~/projects
+  %(prog)s folders --dry-run --verbose               # See what would be cleaned with debug output
+  %(prog)s docker --operations containers images     # Clean Docker containers and images
+  %(prog)s docker --yes --dry-run                    # Preview Docker cleanup without confirmation
+  %(prog)s cache --types npm pip                     # Clean npm and pip caches
+  %(prog)s cache --verbose                           # Clean all caches with detailed output
+
+Environment Variables:
+  CLEANUP_DEBUG=true    Enable debug logging and file output
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        '--dry-run', '-n', action='store_true', help='Show what would be cleaned without executing (safe preview mode)'
+    )
+    parser.add_argument(
+        '--yes', '-y', action='store_true', help='Skip confirmation prompts (auto-confirm all operations)'
+    )
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose/debug output and file logging')
+
+    subparsers = parser.add_subparsers(dest='command', help='Available cleanup commands')
+
+    folders_parser = subparsers.add_parser(
+        'folders',
+        help='Clean development folders (.venv, node_modules, etc.)',
+        description='Remove common development folders that can be regenerated',
+    )
+    folders_parser.add_argument(
+        'path', nargs='?', default='.', help='Directory to search recursively (default: current directory)'
+    )
+    folders_parser.add_argument(
+        '--types',
+        nargs='+',
+        default=['.venv', 'node_modules', '__pycache__'],
+        help='Folder types to clean (default: .venv node_modules __pycache__)',
+    )
+
+    docker_parser = subparsers.add_parser(
+        'docker',
+        help='Clean Docker artifacts (containers, images, volumes, etc.)',
+        description='Remove unused Docker resources to free up disk space',
+    )
+    docker_parser.add_argument(
+        '--operations',
+        nargs='+',
+        default=['containers', 'images', 'volumes'],
+        help='Operations: containers, images, volumes, networks, cache, system (default: containers images volumes)',
+    )
+
+    cache_parser = subparsers.add_parser(
+        'cache',
+        help='Clean package manager and tool caches',
+        description='Clear caches from various package managers and development tools',
+    )
+    cache_parser.add_argument(
+        '--types',
+        nargs='+',
+        default=['npm', 'pip', 'brew'],
+        help='Cache types: npm, pip, brew, uv (default: npm pip brew)',
+    )
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+
+    setup_logging(args.verbose)
+
+    if args.command == 'folders':
+        clean_folders(args.path, args.types, args.dry_run, args.yes)
+    elif args.command == 'docker':
+        clean_docker(args.operations, args.dry_run, args.yes)
+    elif args.command == 'cache':
+        clean_cache(args.types, args.dry_run, args.yes)
+
+
+if __name__ == '__main__':
+    main()
