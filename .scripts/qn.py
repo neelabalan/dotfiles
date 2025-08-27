@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import uuid
 
 
 def get_config_path() -> pathlib.Path:
@@ -17,7 +18,7 @@ def get_config_path() -> pathlib.Path:
 
 def get_default_config() -> dict[str, str]:
     return {
-        'notes_dir': '~/notes',
+        'notes_dir': '~/notes_test',
         'backup_dir': '~/backups',
         'editor': 'code',
         'encryption_tool': 'age',
@@ -73,8 +74,8 @@ def open_in_editor(file_path: pathlib.Path) -> None:
 
 def create_note() -> None:
     notes_dir = get_notes_dir()
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    note_path = notes_dir / f'{timestamp}.md'
+    hex_id = uuid.uuid4().hex[:8]
+    note_path = notes_dir / f'{hex_id}.md'
 
     note_path.touch()
     open_in_editor(note_path)
@@ -95,21 +96,17 @@ def create_daily_note() -> None:
 def create_weekly_note() -> None:
     notes_dir = get_notes_dir()
     today = datetime.date.today()
-    year, week, _ = today.isocalendar()
-    weekly_dir = notes_dir / 'weekly' / f'{year}W{week:02d}'
+    week_start = today - datetime.timedelta(days=today.weekday())
+    week_end = week_start + datetime.timedelta(days=6)
 
+    weekly_dir = notes_dir / 'weekly'
     weekly_dir.mkdir(parents=True, exist_ok=True)
-    index_path = weekly_dir / 'index.md'
 
-    if not index_path.exists():
-        week_start = today - datetime.timedelta(days=today.weekday())
-        week_end = week_start + datetime.timedelta(days=6)
-        index_path.write_text(
-            f'# Weekly Notes - Week {week}, {year}\n'
-            f'## {week_start.strftime("%Y-%m-%d")} to {week_end.strftime("%Y-%m-%d")}\n\n'
-        )
+    weekly_filename = f'{week_start.strftime("%Y%m%d")}-{week_end.strftime("%Y%m%d")}.md'
+    weekly_path = weekly_dir / weekly_filename
 
-    open_in_editor(index_path)
+    weekly_path.touch()
+    open_in_editor(weekly_path)
 
 
 def create_monthly_note() -> None:
@@ -126,15 +123,17 @@ def create_monthly_note() -> None:
 
 def open_notes_directory() -> None:
     notes_dir = get_notes_dir()
+    config = load_config()
+    editor = config['editor']
 
-    if sys.platform == 'darwin':
-        subprocess.run(['open', str(notes_dir)])
-    elif sys.platform.startswith('linux'):
-        subprocess.run(['xdg-open', str(notes_dir)])
-    elif sys.platform == 'win32':
-        subprocess.run(['explorer', str(notes_dir)])
-    else:
-        print(f'Notes directory: {notes_dir}')
+    try:
+        subprocess.run([editor, str(notes_dir)], check=True)
+    except subprocess.CalledProcessError:
+        print(f'Failed to open {notes_dir} with {editor}')
+        sys.exit(1)
+    except FileNotFoundError:
+        print(f"Editor '{editor}' not found")
+        sys.exit(1)
 
 
 def backup_notes(encrypt: bool = False) -> None:
