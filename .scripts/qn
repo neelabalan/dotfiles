@@ -25,7 +25,9 @@ def get_default_config() -> dict[str, str]:
         'encryption_tool': 'age',
         'append_note': 'inbox.md',
         'age_public_key': '',
+        'age_private_key': '',
         'gpg_recipient': '',
+        'gpg_private_key': '',
     }
 
 
@@ -149,11 +151,10 @@ def backup_notes(encrypt: bool = False) -> None:
         return
 
     backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
     if encrypt:
         encryption_tool = config['encryption_tool']
-        backup_file = backup_dir / f'notes_backup_{timestamp}.tar.gz.enc'
+        backup_file = backup_dir / 'notes_backup.tar.gz.enc'
 
         with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as temp_file:
             temp_path = pathlib.Path(temp_file.name)
@@ -186,12 +187,66 @@ def backup_notes(encrypt: bool = False) -> None:
         finally:
             temp_path.unlink(missing_ok=True)
     else:
-        backup_file = backup_dir / f'notes_backup_{timestamp}.tar.gz'
+        backup_file = backup_dir / 'notes_backup.tar.gz'
         try:
             subprocess.run(['tar', '-czf', str(backup_file), '-C', str(notes_dir.parent), notes_dir.name], check=True)
             print(f'backup created: {backup_file}')
         except subprocess.CalledProcessError:
             print('backup failed')
+
+
+def decrypt_backup(output_dir: str = None) -> None:
+    config = load_config()
+    backup_dir = expand_path(config['backup_dir'])
+    encryption_tool = config['encryption_tool']
+
+    encrypted_backup = backup_dir / 'notes_backup.tar.gz.enc'
+
+    if not encrypted_backup.exists():
+        print(f'no encrypted backup found at {encrypted_backup}')
+        return
+
+    if output_dir is None:
+        output_dir = str(backup_dir)
+    else:
+        output_dir = str(expand_path(output_dir))
+        pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    decrypted_file = pathlib.Path(output_dir) / 'notes_backup.tar.gz'
+
+    try:
+        if encryption_tool == 'age':
+            private_key = config.get('age_private_key', '')
+            if not private_key:
+                print('age private key not configured in config')
+                return
+
+            # Write private key to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_key_file:
+                temp_key_file.write(private_key)
+                temp_key_path = temp_key_file.name
+
+            try:
+                subprocess.run(['age', '-d', '-i', temp_key_path, '-o', str(decrypted_file), str(encrypted_backup)], check=True)
+            finally:
+                pathlib.Path(temp_key_path).unlink(missing_ok=True)
+
+        elif encryption_tool == 'gpg':
+            subprocess.run(['gpg', '--decrypt', '--output', str(decrypted_file), str(encrypted_backup)], check=True)
+
+        print(f'backup decrypted to: {decrypted_file}')
+
+        response = input('extract the decrypted archive? (y/N): ')
+        if response.lower() == 'y':
+            extract_dir = pathlib.Path(output_dir) / 'extracted_notes'
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            subprocess.run(['tar', '-xzf', str(decrypted_file), '-C', str(extract_dir)], check=True)
+            print(f'archive extracted to: {extract_dir}')
+
+    except subprocess.CalledProcessError as e:
+        print(f'decryption failed: {e}')
+    except FileNotFoundError:
+        print(f'{encryption_tool} tool not found')
 
 
 def prompt_config_value(prompt_text: str, default_value: str, validator=None) -> str:
@@ -215,7 +270,7 @@ def generate_age_keypair() -> tuple[str, str]:
         return '', ''
 
 
-def generate_gpg_keypair(name: str = 'Quick Notes', email: str = 'notes@localhost') -> str:
+def generate_gpg_keypair(name: str = 'quick_notes', email: str = 'notes@localhost') -> str:
     try:
         gpg_commands = textwrap.dedent(f"""
             Key-Type: RSA
@@ -290,7 +345,9 @@ def initialize_config() -> None:
     append_note = prompt_config_value('append note filename', defaults['append_note'])
 
     age_public_key = defaults['age_public_key']
+    age_private_key = defaults['age_private_key']
     gpg_recipient = defaults['gpg_recipient']
+    gpg_private_key = defaults['gpg_private_key']
 
     if encryption_tool == 'age':
         if not age_public_key:
@@ -298,21 +355,26 @@ def initialize_config() -> None:
             public_key, private_key = generate_age_keypair()
             if public_key:
                 age_public_key = public_key
+                age_private_key = private_key
                 print(f'generated age public key: {public_key}')
-                print('save this private key securely:')
-                print(f'{private_key}')
+                print('age private key will be stored in config for decryption')
             else:
                 age_public_key = input('age public key (leave empty to skip encryption): ').strip()
+                age_private_key = input('age private key (leave empty to skip encryption): ').strip()
         else:
             age_public_key = input('age public key (leave empty to skip encryption): ').strip()
+            age_private_key = input('age private key (leave empty to skip encryption): ').strip()
 
     elif encryption_tool == 'gpg':
         if not gpg_recipient:
             print('generating gpg keypair...')
-            recipient = generate_gpg_keypair()
+            gpg_name = input('gpg key name [quick_notes]: ').strip() or 'quick_notes'
+            gpg_email = input('gpg key email [notes@localhost]: ').strip() or 'notes@localhost'
+            recipient = generate_gpg_keypair(gpg_name, gpg_email)
             if recipient:
                 gpg_recipient = recipient
                 print(f'generated gpg key id: {recipient}')
+                print('gpg private key is stored in gpg keyring')
             else:
                 gpg_recipient = input('gpg recipient (leave empty for symmetric encryption): ').strip()
         else:
@@ -325,7 +387,9 @@ def initialize_config() -> None:
         'encryption_tool': encryption_tool,
         'append_note': append_note,
         'age_public_key': age_public_key,
+        'age_private_key': age_private_key,
         'gpg_recipient': gpg_recipient,
+        'gpg_private_key': gpg_private_key,
     }
 
     save_config(config)
@@ -446,6 +510,9 @@ def main() -> None:
     backup_parser = subparsers.add_parser('backup', help='Backup notes')
     backup_parser.add_argument('--encrypt', action='store_true', help='Encrypt backup')
 
+    decrypt_parser = subparsers.add_parser('decrypt', help='Decrypt backup')
+    decrypt_parser.add_argument('--output-dir', help='Output directory for decrypted files (default: backup directory)')
+
     append_parser = subparsers.add_parser('append', aliases=['a'], help='Append text to note')
     append_parser.add_argument('text', nargs='+', help='Text to append')
 
@@ -461,6 +528,8 @@ def main() -> None:
         open_notes_directory()
     elif args.command == 'backup':
         backup_notes(args.encrypt)
+    elif args.command == 'decrypt':
+        decrypt_backup(args.output_dir)
     elif args.command == 'init':
         initialize_config()
     elif args.command in ['append', 'a']:

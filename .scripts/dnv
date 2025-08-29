@@ -681,7 +681,7 @@ class ArtifactRepository:
         return filepath
 
     def save_logs(self, log_content: str, log_name: str | None = None) -> pathlib.Path:
-        # Always append to unified log file
+        # always append to unified log file
         section = log_name or 'section'
         try:
             with self.main_log_file.open('a', encoding='utf-8') as fh:
