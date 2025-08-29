@@ -18,11 +18,13 @@ def get_config_path() -> pathlib.Path:
 
 def get_default_config() -> dict[str, str]:
     return {
-        'notes_dir': '~/notes_test',
-        'backup_dir': '~/backups',
+        'notes_dir': '~/notes',
+        'backup_dir': '~/notes_backups',
         'editor': 'code',
         'encryption_tool': 'age',
         'append_note': 'inbox.md',
+        'age_public_key': '',
+        'gpg_recipient': ''
     }
 
 
@@ -65,10 +67,10 @@ def open_in_editor(file_path: pathlib.Path) -> None:
     try:
         subprocess.run([editor, str(file_path)], check=True)
     except subprocess.CalledProcessError:
-        print(f'Failed to open {file_path} with {editor}')
+        print(f'failed to open {file_path} with {editor}')
         sys.exit(1)
     except FileNotFoundError:
-        print(f"Editor '{editor}' not found")
+        print(f"editor '{editor}' not found")
         sys.exit(1)
 
 
@@ -129,10 +131,10 @@ def open_notes_directory() -> None:
     try:
         subprocess.run([editor, str(notes_dir)], check=True)
     except subprocess.CalledProcessError:
-        print(f'Failed to open {notes_dir} with {editor}')
+        print(f'failed to open {notes_dir} with {editor}')
         sys.exit(1)
     except FileNotFoundError:
-        print(f"Editor '{editor}' not found")
+        print(f"editor '{editor}' not found")
         sys.exit(1)
 
 
@@ -142,7 +144,7 @@ def backup_notes(encrypt: bool = False) -> None:
     backup_dir = expand_path(config['backup_dir'])
 
     if not notes_dir.exists():
-        print('Notes directory does not exist')
+        print('notes directory does not exist')
         return
 
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -159,42 +161,98 @@ def backup_notes(encrypt: bool = False) -> None:
             subprocess.run(['tar', '-czf', str(temp_path), '-C', str(notes_dir.parent), notes_dir.name], check=True)
 
             if encryption_tool == 'age':
-                subprocess.run(['age', '-r', 'age1...', '-o', str(backup_file), str(temp_path)], check=True)
+                public_key = config.get('age_public_key', '')
+                if not public_key:
+                    print('age public key not configured in config')
+                    return
+                subprocess.run(['age', '-r', public_key, '-o', str(backup_file), str(temp_path)], check=True)
             elif encryption_tool == 'gpg':
-                subprocess.run(
-                    ['gpg', '--symmetric', '--cipher-algo', 'AES256', '--output', str(backup_file), str(temp_path)],
-                    check=True,
-                )
+                recipient = config.get('gpg_recipient', '')
+                if recipient:
+                    subprocess.run(
+                        ['gpg', '--encrypt', '--recipient', recipient, '--output', str(backup_file), str(temp_path)],
+                        check=True,
+                    )
+                else:
+                    subprocess.run(
+                        ['gpg', '--symmetric', '--cipher-algo', 'AES256', '--output', str(backup_file), str(temp_path)],
+                        check=True,
+                    )
 
-            print(f'Encrypted backup created: {backup_file}')
+            print(f'encrypted backup created: {backup_file}')
         except subprocess.CalledProcessError:
-            print('Backup encryption failed')
+            print('backup encryption failed')
         finally:
             temp_path.unlink(missing_ok=True)
     else:
         backup_file = backup_dir / f'notes_backup_{timestamp}.tar.gz'
         try:
             subprocess.run(['tar', '-czf', str(backup_file), '-C', str(notes_dir.parent), notes_dir.name], check=True)
-            print(f'Backup created: {backup_file}')
+            print(f'backup created: {backup_file}')
         except subprocess.CalledProcessError:
-            print('Backup failed')
+            print('backup failed')
 
 
 def initialize_config() -> None:
     config_path = get_config_path()
 
     if config_path.exists():
-        response = input(f'Config file already exists at {config_path}. Overwrite? (y/N): ')
+        response = input(f'config file already exists at {config_path}. overwrite? (y/N): ')
         if response.lower() != 'y':
             return
 
-    config = get_default_config()
-    save_config(config)
-    print(f'Configuration initialized at {config_path}')
+    print('initializing quick notes configuration...')
+    print('press Enter to use default values shown in brackets.\n')
 
-    notes_dir = expand_path(config['notes_dir'])
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    print(f'Notes directory created at {notes_dir}')
+    defaults = get_default_config()
+
+    notes_dir_input = input(f'notes directory [{defaults["notes_dir"]}]: ').strip()
+    notes_dir = notes_dir_input if notes_dir_input else defaults['notes_dir']
+
+    backup_dir_input = input(f'backup directory [{defaults["backup_dir"]}]: ').strip()
+    backup_dir = backup_dir_input if backup_dir_input else defaults['backup_dir']
+
+    editor_input = input(f'editor command [{defaults["editor"]}]: ').strip()
+    editor = editor_input if editor_input else defaults['editor']
+
+    while True:
+        encryption_input = input(f'encryption tool (age/gpg) [{defaults["encryption_tool"]}]: ').strip().lower()
+        if not encryption_input:
+            encryption_tool = defaults['encryption_tool']
+            break
+        elif encryption_input in ['age', 'gpg']:
+            encryption_tool = encryption_input
+            break
+        else:
+            print('please enter "age" or "gpg"')
+
+    append_note_input = input(f'append note filename [{defaults["append_note"]}]: ').strip()
+    append_note = append_note_input if append_note_input else defaults['append_note']
+
+    age_public_key = defaults['age_public_key']
+    gpg_recipient = defaults['gpg_recipient']
+
+    if encryption_tool == 'age':
+        age_public_key = input('age public key (leave empty to skip encryption): ').strip()
+    elif encryption_tool == 'gpg':
+        gpg_recipient = input('gpg recipient (leave empty for symmetric encryption): ').strip()
+
+    config = {
+        'notes_dir': notes_dir,
+        'backup_dir': backup_dir,
+        'editor': editor,
+        'encryption_tool': encryption_tool,
+        'append_note': append_note,
+        'age_public_key': age_public_key,
+        'gpg_recipient': gpg_recipient
+    }
+
+    save_config(config)
+    print(f'\nconfiguration initialized at {config_path}')
+
+    notes_dir_path = expand_path(notes_dir)
+    notes_dir_path.mkdir(parents=True, exist_ok=True)
+    print(f'notes directory created at {notes_dir_path}')
 
 
 def append_to_note(text: str) -> None:
@@ -211,7 +269,7 @@ def append_to_note(text: str) -> None:
     with open(append_file, 'a') as f:
         f.write(entry)
 
-    print(f'Appended to {append_file}')
+    print(f'appended to {append_file}')
 
 
 def count_words_in_file(file_path: pathlib.Path) -> int:
@@ -244,13 +302,13 @@ def show_statistics() -> None:
     notes_dir = get_notes_dir()
 
     if not notes_dir.exists():
-        print('Notes directory does not exist')
+        print('notes directory does not exist')
         return
 
     markdown_files = list(notes_dir.rglob('*.md'))
 
     if not markdown_files:
-        print('No markdown files found')
+        print('no markdown files found')
         return
 
     total_words = 0
@@ -275,11 +333,11 @@ def show_statistics() -> None:
 
     size_mb = total_size / (1024 * 1024)
 
-    print('Notes Statistics:')
-    print(f'  Total files: {len(markdown_files)}')
-    print(f'  Total words: {total_words:,}')
-    print(f'  Unique tags: {len(all_tags)}')
-    print(f'  Total size: {size_mb:.2f} MB')
+    print('notes statistics:')
+    print(f'  total files: {len(markdown_files)}')
+    print(f'  total words: {total_words:,}')
+    print(f'  unique tags: {len(all_tags)}')
+    print(f'  total size: {size_mb:.2f} MB')
 
     if earliest != datetime.datetime.min:
         print(f'  Earliest note: {earliest.strftime("%Y-%m-%d")}')
