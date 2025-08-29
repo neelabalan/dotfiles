@@ -51,6 +51,7 @@ class AgeEncryption:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_key_file:
             temp_key_file.write(private_key)
             temp_key_path = temp_key_file.name
+        os.chmod(temp_key_path, 0o600)
 
         try:
             subprocess.run(['age', '-d', '-i', temp_key_path, '-o', str(output_file), str(input_file)], check=True)
@@ -58,7 +59,12 @@ class AgeEncryption:
         except subprocess.CalledProcessError:
             return False
         finally:
-            pathlib.Path(temp_key_path).unlink(missing_ok=True)
+            try:
+                with open(temp_key_path, 'w') as f:
+                    f.write('0' * 1024)
+                os.unlink(temp_key_path)
+            except OSError:
+                pass
 
 
 class GPGEncryption:
@@ -167,15 +173,33 @@ def load_config() -> dict[str, str]:
 
 
 def save_config(config: dict[str, str]) -> None:
+    if not validate_config_paths(config):
+        print("invalid configuration paths")
+        sys.exit(1)
     config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
+    os.chmod(config_path, 0o600)
 
 
 def expand_path(path_str: str) -> pathlib.Path:
+    if not path_str or '..' in path_str:
+        raise ValueError(f"invalid path: {path_str}")
     return pathlib.Path(os.path.expanduser(path_str)).resolve()
+
+
+def validate_config_paths(config: dict[str, str]) -> bool:
+    try:
+        notes_dir = expand_path(config['notes_dir'])
+        backup_dir = expand_path(config['backup_dir'])
+        if str(notes_dir) in ['/', '/root', '/etc'] or str(backup_dir) in ['/', '/root', '/etc']:
+            print("refusing to use system directories for notes/backup")
+            return False
+        return True
+    except (ValueError, OSError):
+        return False
 
 
 def get_notes_dir() -> pathlib.Path:
@@ -188,6 +212,9 @@ def get_notes_dir() -> pathlib.Path:
 def open_in_editor(file_path: pathlib.Path) -> None:
     config = load_config()
     editor = config['editor']
+    if not editor or ';' in editor or '&' in editor or '|' in editor:
+        print(f"invalid editor command: {editor}")
+        sys.exit(1)
 
     try:
         subprocess.run([editor, str(file_path)], check=True)
