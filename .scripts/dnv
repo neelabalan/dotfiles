@@ -320,7 +320,7 @@ class DevEnvironmentConfig:
         if self.profile:
             config['setup'] = [
                 'ls ~/.dotfiles/',
-                f'uvx python3.11 ~/.dotfiles/dnv dotsync install --source-dir=~/.dotfiles/ --profile={self.profile}',
+                f'uvx python3.11 ~/.dotfiles/.scripts/dnv dotsync install --source-dir=~/.dotfiles/ --profile={self.profile}',
             ]
 
         return config
@@ -1140,6 +1140,10 @@ def main() -> None:
     shell_parser.add_argument('--shell', default='/bin/bash', help='shell to use')
 
     args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        return
 
     CommandHandler(args).handle()
 

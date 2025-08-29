@@ -9,7 +9,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-export PATH="$PATH:$HOME/.scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin"
+export PATH="$PATH:$HOME/.dotfiles/.scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin"
 
 export CHEATCOLORS=true
 export LIBVA_DRIVER_NAME=i965
