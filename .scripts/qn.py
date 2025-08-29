@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import uuid
 
 
@@ -24,7 +25,7 @@ def get_default_config() -> dict[str, str]:
         'encryption_tool': 'age',
         'append_note': 'inbox.md',
         'age_public_key': '',
-        'gpg_recipient': ''
+        'gpg_recipient': '',
     }
 
 
@@ -193,6 +194,72 @@ def backup_notes(encrypt: bool = False) -> None:
             print('backup failed')
 
 
+def prompt_config_value(prompt_text: str, default_value: str, validator=None) -> str:
+    while True:
+        user_input = input(f'{prompt_text} [{default_value}]: ').strip()
+        value = user_input if user_input else default_value
+        if validator and not validator(value):
+            continue
+        return value
+
+
+def generate_age_keypair() -> tuple[str, str]:
+    try:
+        result = subprocess.run(['age-keygen'], capture_output=True, text=True, check=True)
+        lines = result.stdout.strip().split('\n')
+        public_key = lines[0].split(': ')[1]
+        private_key = lines[1].split(': ')[1]
+        return public_key, private_key
+    except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
+        print('failed to generate age keypair. age may not be installed.')
+        return '', ''
+
+
+def generate_gpg_keypair(name: str = 'Quick Notes', email: str = 'notes@localhost') -> str:
+    try:
+        gpg_commands = textwrap.dedent(f"""
+            Key-Type: RSA
+            Key-Length: 4096
+            Subkey-Type: RSA
+            Subkey-Length: 4096
+            Name-Real: {name}
+            Name-Email: {email}
+            Expire-Date: 0
+            %no-protection
+            %commit
+            """).strip()
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(gpg_commands)
+            temp_file = f.name
+
+        result = subprocess.run(['gpg', '--batch', '--gen-key', temp_file], capture_output=True, text=True, check=True)
+
+        lines = result.stderr.split('\n')
+        for line in lines:
+            if 'key ' in line and 'created' in line:
+                key_id = line.split('key ')[1].split(' created')[0]
+                return key_id
+
+        result = subprocess.run(['gpg', '--list-keys', '--with-colons'], capture_output=True, text=True, check=True)
+
+        lines = result.stdout.split('\n')
+        for line in reversed(lines):
+            if line.startswith('pub:'):
+                parts = line.split(':')
+                if len(parts) > 4:
+                    return parts[4]
+
+        return ''
+
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print('failed to generate gpg keypair. gpg may not be installed.')
+        return ''
+    finally:
+        if 'temp_file' in locals():
+            pathlib.Path(temp_file).unlink(missing_ok=True)
+
+
 def initialize_config() -> None:
     config_path = get_config_path()
 
@@ -206,36 +273,50 @@ def initialize_config() -> None:
 
     defaults = get_default_config()
 
-    notes_dir_input = input(f'notes directory [{defaults["notes_dir"]}]: ').strip()
-    notes_dir = notes_dir_input if notes_dir_input else defaults['notes_dir']
+    notes_dir = prompt_config_value('notes directory', defaults['notes_dir'])
+    backup_dir = prompt_config_value('backup directory', defaults['backup_dir'])
+    editor = prompt_config_value('editor command', defaults['editor'])
 
-    backup_dir_input = input(f'backup directory [{defaults["backup_dir"]}]: ').strip()
-    backup_dir = backup_dir_input if backup_dir_input else defaults['backup_dir']
-
-    editor_input = input(f'editor command [{defaults["editor"]}]: ').strip()
-    editor = editor_input if editor_input else defaults['editor']
-
-    while True:
-        encryption_input = input(f'encryption tool (age/gpg) [{defaults["encryption_tool"]}]: ').strip().lower()
-        if not encryption_input:
-            encryption_tool = defaults['encryption_tool']
-            break
-        elif encryption_input in ['age', 'gpg']:
-            encryption_tool = encryption_input
-            break
-        else:
+    def validate_encryption_tool(value: str) -> bool:
+        if value.lower() not in ['age', 'gpg']:
             print('please enter "age" or "gpg"')
+            return False
+        return True
 
-    append_note_input = input(f'append note filename [{defaults["append_note"]}]: ').strip()
-    append_note = append_note_input if append_note_input else defaults['append_note']
+    encryption_tool = prompt_config_value(
+        'encryption tool (age/gpg)', defaults['encryption_tool'], validate_encryption_tool
+    ).lower()
+
+    append_note = prompt_config_value('append note filename', defaults['append_note'])
 
     age_public_key = defaults['age_public_key']
     gpg_recipient = defaults['gpg_recipient']
 
     if encryption_tool == 'age':
-        age_public_key = input('age public key (leave empty to skip encryption): ').strip()
+        if not age_public_key:
+            print('generating age keypair...')
+            public_key, private_key = generate_age_keypair()
+            if public_key:
+                age_public_key = public_key
+                print(f'generated age public key: {public_key}')
+                print('save this private key securely:')
+                print(f'{private_key}')
+            else:
+                age_public_key = input('age public key (leave empty to skip encryption): ').strip()
+        else:
+            age_public_key = input('age public key (leave empty to skip encryption): ').strip()
+
     elif encryption_tool == 'gpg':
-        gpg_recipient = input('gpg recipient (leave empty for symmetric encryption): ').strip()
+        if not gpg_recipient:
+            print('generating gpg keypair...')
+            recipient = generate_gpg_keypair()
+            if recipient:
+                gpg_recipient = recipient
+                print(f'generated gpg key id: {recipient}')
+            else:
+                gpg_recipient = input('gpg recipient (leave empty for symmetric encryption): ').strip()
+        else:
+            gpg_recipient = input('gpg recipient (leave empty for symmetric encryption): ').strip()
 
     config = {
         'notes_dir': notes_dir,
@@ -244,7 +325,7 @@ def initialize_config() -> None:
         'encryption_tool': encryption_tool,
         'append_note': append_note,
         'age_public_key': age_public_key,
-        'gpg_recipient': gpg_recipient
+        'gpg_recipient': gpg_recipient,
     }
 
     save_config(config)

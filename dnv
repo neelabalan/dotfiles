@@ -127,7 +127,6 @@ class DevEnvironmentConfig:
                 'tools',
                 'neovim',
                 'starship',
-                'dotfiles',
                 'ssh',
                 'docker',
                 'sdkman',
