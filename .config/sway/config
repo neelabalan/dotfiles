@@ -48,8 +48,8 @@ bindsym $mod+Shift+Return exec tdrop -w 40% -h 30% -y 1500 -x 1200 alacritty
 bindsym $mod+Shift+q kill
 
 ## move to workspace kind of shit
-bindsym $mod+n exec swaymsg workspace $( ~/.scripts/lsws.sh | dmenu -i -nb black -fn Monospace-10:normal )
-bindsym $mod+Shift+n exec swaymsg move container to workspace $( ~/.scripts/lsws.sh| dmenu -i -nb black -fn Monospace-10:normal )
+bindsym $mod+n exec swaymsg workspace $( ~/.scripts/lsws | dmenu -i -nb black -fn Monospace-10:normal )
+bindsym $mod+Shift+n exec swaymsg move container to workspace $( ~/.scripts/lsws | dmenu -i -nb black -fn Monospace-10:normal )
 
 # start dmenu (a program launcher)
 # bindsym $mod+u exec --no-startup-id i3-dmenu-desktop --dmenu='dmenu -i -nb black -fn Monospace-10:normal'
@@ -219,12 +219,12 @@ bindsym $mod+m mode "$monitor"
 set $mode_system System (l) lock, (e) logout, (s) suspend, (h) hibernate, (r) reboot, (p) shutdown
 mode "$mode_system" 
 {
-    bindsym l exec --no-startup-id ~/.scripts/i3exit.sh lock, mode "default"
-    bindsym e exec --no-startup-id ~/.scripts/i3exit.sh logout, mode "default"
-    bindsym s exec --no-startup-id ~/.scripts/i3exit.sh suspend, mode "default"
-    bindsym h exec --no-startup-id ~/.scripts/i3exit.sh hibernate, mode "default"
-    bindsym r exec --no-startup-id ~/.scripts/i3exit.sh reboot, mode "default"
-    bindsym p exec --no-startup-id ~/.scripts/i3exit.sh shutdown, mode "default"
+    bindsym l exec --no-startup-id ~/.scripts/i3exit lock, mode "default"
+    bindsym e exec --no-startup-id ~/.scripts/i3exit logout, mode "default"
+    bindsym s exec --no-startup-id ~/.scripts/i3exit suspend, mode "default"
+    bindsym h exec --no-startup-id ~/.scripts/i3exit hibernate, mode "default"
+    bindsym r exec --no-startup-id ~/.scripts/i3exit reboot, mode "default"
+    bindsym p exec --no-startup-id ~/.scripts/i3exit shutdown, mode "default"
 
     # back to normal: Enter or Escape
     bindsym Return mode "default"

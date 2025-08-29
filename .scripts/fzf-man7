@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# fzf-man7.sh - Interactive man page browser using fzf and man7.org
-
 set -euo pipefail
 
 # cross-platform opener
@@ -30,7 +28,6 @@ build_index() {
     echo "Index built with $(wc -l < "$INDEX_FILE") man pages" >&2
 }
 
-# Function to search man pages
 search_man_pages() {
     local search_term="${1:-}"
     
