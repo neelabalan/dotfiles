@@ -2,7 +2,7 @@ set $mod Mod1
 
 # set wallpaper
 #exec --no-startup-id xsetroot -solid "#000000"
-#exec --no-startup-id feh --bg-scale ~/.scripts/wallpaper.jpg
+#exec --no-startup-id feh --bg-scale ~/.dotfiles/scripts/wallpaper.jpg
 
 # setting background wallpaper
 # xsetroot -solid "#000000"
@@ -48,8 +48,8 @@ bindsym $mod+Shift+Return exec tdrop -w 40% -h 30% -y 1500 -x 1200 alacritty
 bindsym $mod+Shift+q kill
 
 ## move to workspace kind of shit
-bindsym $mod+n exec swaymsg workspace $( ~/.scripts/lsws | dmenu -i -nb black -fn Monospace-10:normal )
-bindsym $mod+Shift+n exec swaymsg move container to workspace $( ~/.scripts/lsws | dmenu -i -nb black -fn Monospace-10:normal )
+bindsym $mod+n exec swaymsg workspace $( ~/.dotfiles/scripts/lsws | dmenu -i -nb black -fn Monospace-10:normal )
+bindsym $mod+Shift+n exec swaymsg move container to workspace $( ~/.dotfiles/scripts/lsws | dmenu -i -nb black -fn Monospace-10:normal )
 
 # start dmenu (a program launcher)
 # bindsym $mod+u exec --no-startup-id i3-dmenu-desktop --dmenu='dmenu -i -nb black -fn Monospace-10:normal'
@@ -206,10 +206,10 @@ bindsym $mod+r mode "resize"
 set $monitor right monitor (r), left monitor (l), all monitors (a), on monitors (o)
 mode "$monitor"
 {
-    bindsym r exec --no-startup-id ~/.scripts/monitor.sh right, mode "default"
-    bindsym l exec --no-startup-id ~/.scripts/monitor.sh left, mode "default"
-    bindsym a exec --no-startup-id ~/.scripts/monitor.sh all, mode "default"
-    bindsym o exec --no-startup-id ~/.scripts/monitor.sh on, mode "default"
+    bindsym r exec --no-startup-id ~/.dotfiles/scripts/monitor.sh right, mode "default"
+    bindsym l exec --no-startup-id ~/.dotfiles/scripts/monitor.sh left, mode "default"
+    bindsym a exec --no-startup-id ~/.dotfiles/scripts/monitor.sh all, mode "default"
+    bindsym o exec --no-startup-id ~/.dotfiles/scripts/monitor.sh on, mode "default"
 
     bindsym Return mode "default"
     bindsym Escape mode "default"
@@ -219,12 +219,12 @@ bindsym $mod+m mode "$monitor"
 set $mode_system System (l) lock, (e) logout, (s) suspend, (h) hibernate, (r) reboot, (p) shutdown
 mode "$mode_system" 
 {
-    bindsym l exec --no-startup-id ~/.scripts/i3exit lock, mode "default"
-    bindsym e exec --no-startup-id ~/.scripts/i3exit logout, mode "default"
-    bindsym s exec --no-startup-id ~/.scripts/i3exit suspend, mode "default"
-    bindsym h exec --no-startup-id ~/.scripts/i3exit hibernate, mode "default"
-    bindsym r exec --no-startup-id ~/.scripts/i3exit reboot, mode "default"
-    bindsym p exec --no-startup-id ~/.scripts/i3exit shutdown, mode "default"
+    bindsym l exec --no-startup-id ~/.dotfiles/scripts/i3exit lock, mode "default"
+    bindsym e exec --no-startup-id ~/.dotfiles/scripts/i3exit logout, mode "default"
+    bindsym s exec --no-startup-id ~/.dotfiles/scripts/i3exit suspend, mode "default"
+    bindsym h exec --no-startup-id ~/.dotfiles/scripts/i3exit hibernate, mode "default"
+    bindsym r exec --no-startup-id ~/.dotfiles/scripts/i3exit reboot, mode "default"
+    bindsym p exec --no-startup-id ~/.dotfiles/scripts/i3exit shutdown, mode "default"
 
     # back to normal: Enter or Escape
     bindsym Return mode "default"
@@ -235,8 +235,8 @@ bindsym $mod+p mode "$mode_system"
 #set $map_key change map key ? (y/n)
 #mode "$map_key"
 #{
-	#bindsym y exec --no-startup-id ~/.scripts/wakeup.sh mapkey, mode "default"
-	#bindsym n exec --no-startup-id ~/.scripts/wakeup.sh unmapkey, mode "default"
+	#bindsym y exec --no-startup-id ~/.dotfiles/scripts/wakeup.sh mapkey, mode "default"
+	#bindsym n exec --no-startup-id ~/.dotfiles/scripts/wakeup.sh unmapkey, mode "default"
 	#bindsym Escape mode "default"
 #}
 #bindsym $mod+m mode "$map_key"

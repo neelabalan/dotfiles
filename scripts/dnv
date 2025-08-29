@@ -338,7 +338,7 @@ class DevEnvironmentConfig:
         if self.profile:
             config['setup'] = [
                 'ls ~/.dotfiles/',
-                f'uvx python3.11 ~/.dotfiles/.scripts/dnv dotsync install --source-dir=~/.dotfiles/ --profile={self.profile}',
+                f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync install --source-dir=~/.dotfiles/ --profile={self.profile}',
             ]
 
         return config
