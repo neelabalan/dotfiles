@@ -16,16 +16,16 @@ import textwrap
 import time
 import typing
 
+DEBUG_ENABLED = os.environ.get('DEBUG') in ('1', 'TRUE', 'true')
 
 def _init_logger():
-    # Simple module-level logging setup
     LOGS_BASE_DIR = pathlib.Path.home() / '.dotfiles' / '.devenv' / 'logs'
     LOGS_BASE_DIR.mkdir(parents=True, exist_ok=True)
     MAIN_LOG_FILE = LOGS_BASE_DIR / 'dnv.log'
 
-    level = logging.DEBUG if os.environ.get('DEBUG') == '1' else logging.INFO
+    level = logging.DEBUG if DEBUG_ENABLED else logging.INFO
     logger = logging.getLogger('dnv')
-    if logger.handlers:  # already configured
+    if logger.handlers:
         logger.setLevel(level)
         return logger
     logger.setLevel(level)
@@ -74,6 +74,23 @@ class DockerfileTemplate(string.Template):
 # - add arch as well?
 class DevEnvironmentConfig:
     PROFILES: dict[str, dict[str, typing.Any]] = {
+        'just-dotfiles': {
+            'dotfiles': [
+                '.bashrc',
+                '.bash_profile',
+                '.tmux.conf',
+                '.haskeline',
+                '.ruff.toml',
+                '.vimrc',
+                '.visidatarc',
+                '.ipython',
+                '.config/starship.toml',
+                '.config/nvim',
+                '.config/.ghc',
+                '.config/kitty',
+                '.config/mpv'
+            ]
+        },
         'workstation': {
             'docker': {
                 'distro': 'rpm',
@@ -103,6 +120,7 @@ class DevEnvironmentConfig:
             ],
             'dotfiles': [
                 '.bashrc',
+                '.bash_profile',
                 '.config/starship.toml',
                 '.config/nvim',
                 '.tmux.conf',
@@ -620,7 +638,7 @@ class SetupShBuilder:
 
 class DotfilesManager:
     def __init__(self, dotfiles_dir: pathlib.Path | None = None) -> None:
-        self.dotfiles_dir = dotfiles_dir or pathlib.Path.cwd()
+        self.dotfiles_dir = dotfiles_dir or (pathlib.Path.home() / '.dotfiles')
         self.home_dir = pathlib.Path.home()
         self.backup_dir = self.home_dir / f'.dotfiles-backup-{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'
 
@@ -752,6 +770,8 @@ class ImageBuilder:
 
     def build(self) -> bool:
         logger.info(f'building image: {self.name}')
+        dotfiles_dir = pathlib.Path.home() / '.dotfiles'
+
         build_cmd = [
             'docker',
             'build',
@@ -764,25 +784,56 @@ class ImageBuilder:
         if self.arch:
             build_cmd.extend(get_docker_platform_flag(self.arch))
 
-        build_cmd.append('.')
+        if DEBUG_ENABLED:
+            build_cmd.extend(['--progress=plain', '--no-cache'])
+
+        build_cmd.append(str(dotfiles_dir))
         logger.debug(f'running: {" ".join(build_cmd)}')
 
-        build_result = subprocess.run(build_cmd, capture_output=True, text=True)
-
         artifact_repo = ArtifactRepository()
+
+        if DEBUG_ENABLED:
+            # Debug mode - show live output, don't capture
+            logger.info('Debug mode: showing verbose Docker build output...')
+            build_result = subprocess.run(build_cmd, cwd=str(dotfiles_dir))
+            returncode = build_result.returncode
+            stdout_output = stderr_output = 'Live output shown above'
+        else:
+            # Standard mode - capture all output
+            build_result = subprocess.run(build_cmd, capture_output=True, text=True, cwd=str(dotfiles_dir))
+            returncode = build_result.returncode
+            stdout_output = build_result.stdout
+            stderr_output = build_result.stderr
+
         log_content = (
             f'Command: {" ".join(build_cmd)}\n'
-            f'Return code: {build_result.returncode}\n'
-            f'STDOUT:\n{build_result.stdout}\n'
-            f'STDERR:\n{build_result.stderr}\n'
+            f'Return code: {returncode}\n'
+            f'STDOUT:\n{stdout_output}\n'
+            f'STDERR:\n{stderr_output}\n'
         )
         artifact_repo.save_logs(log_content, log_name='docker-build')
 
-        if build_result.returncode != 0:
-            logger.error(f'failed to build image {self.name}: {build_result.stderr.strip()}')
+        if returncode != 0:
+            logger.error(f'failed to build image {self.name}: {stderr_output.strip()}')
             return False
         logger.info(f'successfully built image: {self.name}')
+
+        self._cleanup_dangling_images()
         return True
+
+    def _cleanup_dangling_images(self):
+        try:
+            logger.debug('Cleaning up dangling images...')
+            result = subprocess.run(
+                ['docker', 'image', 'prune', '-f'],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info('Cleaned up dangling images')
+                logger.debug(f'Cleanup output: {result.stdout.strip()}')
+        except Exception as e:
+            logger.debug(f'Failed to clean up dangling images: {e}')
 
 
 class DevContainerManager:
