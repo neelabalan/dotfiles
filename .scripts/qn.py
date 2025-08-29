@@ -473,4 +473,7 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    if sys.version_info < (3, 11):
+        print('error: this script requires Python 3.11 or later')
+        sys.exit(1)
     main()

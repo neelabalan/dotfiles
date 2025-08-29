@@ -1,21 +1,25 @@
 # original idea from https://github.com/mawoka-myblock/mubert
 # alias zone='python3 <filepath>'
 # ctrl+c and ctrl+z to exit
-import os
 import sys
+
+if sys.version_info < (3, 11):
+    print('error: this script requires Python 3.11 or later')
+    sys.exit(1)
+
 import json
-import time
+import pathlib
+import shelve
 import subprocess
 import tempfile
 import threading
-import pathlib
-import shelve
+import time
 
 import requests
 
-cookies = {}
-headers = {'user-agent': 'MubertAndroid'}
-payload = {
+cookies: dict[str, str] = {}
+headers: dict[str, str] = {'user-agent': 'MubertAndroid'}
+payload: dict = {
     'method': 'AppGetPages',
     'params': {'timestamp': 0},
     'application': 'Mubert',
@@ -26,7 +30,7 @@ payload = {
 }
 
 
-def set_cookies():
+def set_cookies() -> None:
     response = requests.get('https://mubert.com')
     cookie_path = pathlib.Path().resolve() / 'cookie'
     if not cookie_path.exists():
@@ -39,9 +43,9 @@ def set_cookies():
             cookies['mat_id'] = cookie['mat_id']
 
 
-def get_streams():
+def get_streams() -> dict:
     jsonpath = pathlib.Path().resolve() / 'mubert.json'
-    response = {}
+    response: dict = {}
     if jsonpath.exists():
         with open(str(jsonpath), 'r') as file:
             response = json.load(file)
@@ -56,8 +60,8 @@ def get_streams():
     return response
 
 
-def extract_url_names(response):
-    data = {}
+def extract_url_names(response: dict) -> dict[str, str]:
+    data: dict[str, str] = {}
     pages = response.get('data').get('pages')
     for section in pages:
         for unit in section.get('units'):
@@ -68,7 +72,7 @@ def extract_url_names(response):
     return data
 
 
-def download_stream(filename, url):
+def download_stream(filename: str, url: str) -> None:
     io_stream = requests.get(
         url,
         cookies=cookies,
@@ -80,7 +84,7 @@ def download_stream(filename, url):
             file.write(line)
 
 
-def get_choice_of_stream(data):
+def get_choice_of_stream(data: dict[str, str]) -> str:
     echo_text = '\n'.join(data.keys())
     stream = subprocess.Popen('echo -n "{}" | fzf'.format(echo_text), shell=True, stdout=subprocess.PIPE).communicate()[
         0
@@ -88,13 +92,12 @@ def get_choice_of_stream(data):
     return stream.decode('utf-8').replace('\n', '')
 
 
-def run():
+def run() -> None:
     set_cookies()
     response = get_streams()
     data = extract_url_names(response)
     stream = get_choice_of_stream(data)
     if stream:
-        url = data.get(str(stream))
         fd, filename = tempfile.mkstemp(suffix='.mp3')
         try:
             download = threading.Thread(target=download_stream, args=(filename, data.get(stream)))
