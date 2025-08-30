@@ -612,4 +612,6 @@
 		"editor.defaultFormatter": "matklad.rust-analyzer"
 	},
 	"editor.bracketPairColorization.enabled": false,
+	"diffEditor.diffAlgorithm": "advanced",
+	"diffEditor.experimental.showMoves": true
 }
