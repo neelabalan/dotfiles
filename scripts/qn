@@ -477,7 +477,7 @@ def append_to_note(text: str) -> None:
     notes_dir = get_notes_dir()
     append_file = notes_dir / config['append_note']
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    entry = f'\n## {timestamp}\n{text}\n'
+    entry = f'\n### {timestamp}\n\n{text}\n\n'
 
     if not append_file.exists():
         append_file.write_text(f'# {config["append_note"]}\n')
@@ -562,6 +562,33 @@ def show_statistics() -> None:
             print(f'  Top tags: {", ".join(sorted_tags[:10])}...')
 
 
+def prune_empty_files() -> None:
+    notes_dir = get_notes_dir()
+    if not notes_dir.exists():
+        print('notes directory does not exist')
+        return
+
+    empty_files = []
+    for file_path in notes_dir.rglob('*.md'):
+        if file_path.stat().st_size == 0:
+            empty_files.append(file_path)
+
+    if not empty_files:
+        print('no empty files found')
+        return
+
+    removed_count = 0
+    for file_path in empty_files:
+        try:
+            file_path.unlink()
+            print(f'removed: {file_path}')
+            removed_count += 1
+        except OSError as e:
+            print(f'failed to remove {file_path}: {e}')
+
+    print(f'successfully removed {removed_count} empty file(s)')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Quick Notes CLI')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -578,6 +605,8 @@ def main() -> None:
 
     decrypt_parser = subparsers.add_parser('decrypt', help='Decrypt backup')
     decrypt_parser.add_argument('--output-dir', help='Output directory for decrypted files (default: backup directory)')
+
+    subparsers.add_parser('prune', help='Remove empty note files')
 
     append_parser = subparsers.add_parser('append', aliases=['a'], help='Append text to note')
     append_parser.add_argument('text', nargs='+', help='Text to append')
@@ -596,6 +625,8 @@ def main() -> None:
         backup_notes(args.encrypt)
     elif args.command == 'decrypt':
         decrypt_backup(args.output_dir)
+    elif args.command == 'prune':
+        prune_empty_files()
     elif args.command == 'init':
         initialize_config()
     elif args.command in ['append', 'a']:
