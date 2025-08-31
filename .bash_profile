@@ -31,6 +31,4 @@ if command -v uv &> /dev/null; then
     done
 fi
 
-exec bash
-
 [[ -f ~/.bashrc ]] && source ~/.bashrc

@@ -12,7 +12,6 @@ bind '"\e[D": backward-char'
 complete -d cd
 bind TAB:menu-complete
 
-VISUAL=vim; export VISUAL EDITOR=vim; export EDITOR
 HISTCONTROL=ignoreboth
 shopt -s histappend
 
