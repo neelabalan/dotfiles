@@ -3,7 +3,6 @@
 import argparse
 import datetime
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -51,7 +50,7 @@ class AgeEncryption:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_key_file:
             temp_key_file.write(private_key)
             temp_key_path = temp_key_file.name
-        os.chmod(temp_key_path, 0o600)
+        pathlib.Path(temp_key_path).chmod(0o600)
 
         try:
             subprocess.run(['age', '-d', '-i', temp_key_path, '-o', str(output_file), str(input_file)], check=True)
@@ -62,7 +61,7 @@ class AgeEncryption:
             try:
                 with open(temp_key_path, 'w') as f:
                     f.write('0' * 1024)
-                os.unlink(temp_key_path)
+                pathlib.Path(temp_key_path).unlink()
             except OSError:
                 pass
 
@@ -181,13 +180,13 @@ def save_config(config: dict[str, str]) -> None:
 
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
-    os.chmod(config_path, 0o600)
+    config_path.chmod(0o600)
 
 
 def expand_path(path_str: str) -> pathlib.Path:
     if not path_str or '..' in path_str:
         raise ValueError(f"invalid path: {path_str}")
-    return pathlib.Path(os.path.expanduser(path_str)).resolve()
+    return pathlib.Path(path_str).expanduser().resolve()
 
 
 def validate_config_paths(config: dict[str, str]) -> bool:
@@ -570,8 +569,15 @@ def prune_empty_files() -> None:
 
     empty_files = []
     for file_path in notes_dir.rglob('*.md'):
-        if file_path.stat().st_size == 0:
-            empty_files.append(file_path)
+        try:
+            if file_path.stat().st_size == 0:
+                empty_files.append(file_path)
+            else:
+                content = file_path.read_text(encoding='utf-8', errors='ignore')
+                if not content.strip():
+                    empty_files.append(file_path)
+        except OSError:
+            continue
 
     if not empty_files:
         print('no empty files found')
