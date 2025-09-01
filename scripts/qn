@@ -173,7 +173,7 @@ def load_config() -> dict[str, str]:
 
 def save_config(config: dict[str, str]) -> None:
     if not validate_config_paths(config):
-        print("invalid configuration paths")
+        print('invalid configuration paths')
         sys.exit(1)
     config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +185,7 @@ def save_config(config: dict[str, str]) -> None:
 
 def expand_path(path_str: str) -> pathlib.Path:
     if not path_str or '..' in path_str:
-        raise ValueError(f"invalid path: {path_str}")
+        raise ValueError(f'invalid path: {path_str}')
     return pathlib.Path(path_str).expanduser().resolve()
 
 
@@ -194,7 +194,7 @@ def validate_config_paths(config: dict[str, str]) -> bool:
         notes_dir = expand_path(config['notes_dir'])
         backup_dir = expand_path(config['backup_dir'])
         if str(notes_dir) in ['/', '/root', '/etc'] or str(backup_dir) in ['/', '/root', '/etc']:
-            print("refusing to use system directories for notes/backup")
+            print('refusing to use system directories for notes/backup')
             return False
         return True
     except (ValueError, OSError):
@@ -212,7 +212,7 @@ def open_in_editor(file_path: pathlib.Path) -> None:
     config = load_config()
     editor = config['editor']
     if not editor or ';' in editor or '&' in editor or '|' in editor:
-        print(f"invalid editor command: {editor}")
+        print(f'invalid editor command: {editor}')
         sys.exit(1)
 
     try:
@@ -595,6 +595,19 @@ def prune_empty_files() -> None:
     print(f'successfully removed {removed_count} empty file(s)')
 
 
+def print_all_tags() -> None:
+    notes_dir = get_notes_dir()
+    markdown_files = list(notes_dir.rglob('*.md'))
+    all_tags = set()
+    for file_path in markdown_files:
+        all_tags.update(extract_tags_from_file(file_path))
+    if all_tags:
+        print('unique tags:')
+        print('\n'.join(sorted(all_tags, key=str.lower)))
+    else:
+        print('no tags found.')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Quick Notes CLI')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -605,6 +618,7 @@ def main() -> None:
     subparsers.add_parser('open', help='Open notes directory')
     subparsers.add_parser('init', help='Initialize configuration')
     subparsers.add_parser('stats', help='Show note statistics')
+    subparsers.add_parser('tags', help='Print all unique tags in notes')
 
     backup_parser = subparsers.add_parser('backup', help='Backup notes')
     backup_parser.add_argument('--encrypt', action='store_true', help='Encrypt backup')
@@ -640,6 +654,8 @@ def main() -> None:
         append_to_note(text)
     elif args.command == 'stats':
         show_statistics()
+    elif args.command == 'tags':
+        print_all_tags()
     else:
         create_note()
 
