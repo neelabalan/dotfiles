@@ -140,7 +140,7 @@ eval "$(fzf --bash)"
 code () { 
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        VSCODE_CWD="$PWD" open -n -b "com.microsoft.VSCode" --args $*
+        VSCODE_CWD="$PWD" command open -n -b "com.microsoft.VSCode" --args $*
     else
         # Linux and other systems
         command code $*
