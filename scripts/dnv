@@ -338,7 +338,7 @@ class DevEnvironmentConfig:
         if self.profile:
             config['setup'] = [
                 'ls ~/.dotfiles/',
-                f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync install --source-dir=~/.dotfiles/ --profile={self.profile}',
+                f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync --source-dir=~/.dotfiles/ --profile={self.profile}',
             ]
 
         return config
@@ -1100,7 +1100,7 @@ class CommandHandler:
         DevContainerManager.exec_shell(container_name, self.args.shell)
 
     def handle_dotsync(self) -> None:
-        if self.args.dotsync_command == 'install' and self.args.profile:
+        if self.args.profile:
             if self.args.profile not in DevEnvironmentConfig.PROFILES:
                 available = list(DevEnvironmentConfig.PROFILES.keys())
                 logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
@@ -1166,12 +1166,8 @@ def main() -> None:
 
     # dotsync command args
     dotsync_parser = subparsers.add_parser('dotsync', help='sync dotfiles')
-    dotsync_subparsers = dotsync_parser.add_subparsers(dest='dotsync_command')
-
-    # dotsync install subcommand args
-    install_parser = dotsync_subparsers.add_parser('install', help='install dotfiles')
-    install_parser.add_argument('--source-dir', help='source directory')
-    install_parser.add_argument(
+    dotsync_parser.add_argument('--source-dir', help='source directory')
+    dotsync_parser.add_argument(
         '--profile',
         default='workstation',
         help='profile name to use (default: workstation)',
@@ -1194,6 +1190,21 @@ def main() -> None:
 
     if args.command is None:
         parser.print_help()
+        print("\navailable profiles:")
+        for profile_name, profile_data in DevEnvironmentConfig.PROFILES.items():
+            print(f"- {profile_name}:")
+            if 'docker' in profile_data:
+                docker = profile_data['docker']
+                base_image = docker.get('base_image', 'default')
+                distro = docker.get('distro', 'unknown')
+                print(f"  docker: {base_image} on {distro}")
+            if 'tools' in profile_data:
+                tools = profile_data['tools']
+                print(f"  tools: {', '.join(tools)}")
+            if 'dotfiles' in profile_data:
+                dotfiles = profile_data['dotfiles']
+                print(f"  dotfiles: {len(dotfiles)} files")
+            print()
         return
 
     CommandHandler(args).handle()
