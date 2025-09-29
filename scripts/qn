@@ -208,12 +208,23 @@ def get_notes_dir() -> pathlib.Path:
     return notes_dir
 
 
-def open_in_editor(file_path: pathlib.Path) -> None:
+def open_in_editor(file_path: pathlib.Path, also_open_directory: bool = False) -> None:
     config = load_config()
     editor = config['editor']
     if not editor or ';' in editor or '&' in editor or '|' in editor:
         print(f'invalid editor command: {editor}')
         sys.exit(1)
+
+    if also_open_directory:
+        notes_dir = get_notes_dir()
+        try:
+            subprocess.run([editor, str(notes_dir), str(file_path)], check=True)
+            return
+        except subprocess.CalledProcessError:
+            pass
+        except FileNotFoundError:
+            print(f"editor '{editor}' not found")
+            sys.exit(1)
 
     try:
         subprocess.run([editor, str(file_path)], check=True)
@@ -231,7 +242,7 @@ def create_note() -> None:
     note_path = notes_dir / f'{hex_id}.md'
 
     note_path.touch()
-    open_in_editor(note_path)
+    open_in_editor(note_path, also_open_directory=True)
 
 
 def create_daily_note() -> None:
@@ -274,17 +285,7 @@ def create_monthly_note() -> None:
 
 def open_notes_directory() -> None:
     notes_dir = get_notes_dir()
-    config = load_config()
-    editor = config['editor']
-
-    try:
-        subprocess.run([editor, str(notes_dir)], check=True)
-    except subprocess.CalledProcessError:
-        print(f'failed to open {notes_dir} with {editor}')
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"editor '{editor}' not found")
-        sys.exit(1)
+    open_in_editor(notes_dir)
 
 
 def backup_notes(encrypt: bool = False) -> None:
