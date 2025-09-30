@@ -3,19 +3,23 @@
 import argparse
 import datetime
 import html.parser
+import http.server
 import json
 import pathlib
 import re
+import socketserver
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import typing
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import webbrowser
 
 
 class AgeEncryption:
@@ -452,6 +456,69 @@ class LinkManager:
                 print(f'    "{title}"')
 
         conn.close()
+
+    def browse_urls(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        query = '''
+            SELECT l.url, l.title, l.status, l.status_code, l.domain, COUNT(ll.url) as note_count
+            FROM links l
+            LEFT JOIN link_locations ll ON l.url = ll.url
+            WHERE 1=1
+        '''
+        params = []
+
+        if dead_only:
+            query += ' AND l.status = "dead"'
+
+        if domain:
+            query += ' AND l.domain = ?'
+            params.append(domain)
+
+        query += ' GROUP BY l.url ORDER BY l.domain, l.url'
+
+        cursor.execute(query, params)
+        links = cursor.fetchall()
+        conn.close()
+
+        urls_data = []
+        for url, title, status, status_code, link_domain, note_count in links:
+            urls_data.append({
+                'url': url,
+                'title': title,
+                'status': status,
+                'status_code': status_code,
+                'domain': link_domain,
+                'note_count': note_count
+            })
+
+        template_path = pathlib.Path(__file__).parent / 'qn_browser_template.html'
+        html_content = template_path.read_text()
+        html_content = html_content.replace('{{URLS_DATA}}', json.dumps(urls_data))
+
+        class RequestHandler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(html_content.encode())
+
+            def log_message(self, format, *args):
+                pass
+
+        port = 8765
+        with socketserver.TCPServer(('', port), RequestHandler) as httpd:
+            url = f'http://localhost:{port}'
+            print(f'opening browser at {url}')
+            print('press ctrl+c to stop server')
+
+            threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                print('\nserver stopped')
 
 
 def get_config_path() -> pathlib.Path:
@@ -946,15 +1013,19 @@ def main() -> None:
     append_parser = subparsers.add_parser('append', aliases=['a'], help='Append text to note')
     append_parser.add_argument('text', nargs='+', help='Text to append')
 
-    links_parser = subparsers.add_parser('links', help='Manage links in notes')
-    links_subparsers = links_parser.add_subparsers(dest='links_command', help='Links commands')
+    url_parser = subparsers.add_parser('url', help='Manage URLs in notes')
+    url_subparsers = url_parser.add_subparsers(dest='url_command', help='URL commands')
 
-    links_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
-    links_subparsers.add_parser('audit', help='Check for duplicate and dead links')
+    url_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
+    url_subparsers.add_parser('audit', help='Check for duplicate and dead links')
 
-    ls_parser = links_subparsers.add_parser('ls', help='List all links')
+    ls_parser = url_subparsers.add_parser('ls', help='List all links')
     ls_parser.add_argument('--dead', action='store_true', help='Show only dead links')
     ls_parser.add_argument('--domain', type=str, help='Filter by domain')
+
+    browse_parser = url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
+    browse_parser.add_argument('--dead', action='store_true', help='Show only dead links')
+    browse_parser.add_argument('--domain', type=str, help='Filter by domain')
 
     args = parser.parse_args()
 
@@ -981,21 +1052,24 @@ def main() -> None:
         show_statistics()
     elif args.command == 'tags':
         print_all_tags()
-    elif args.command == 'links':
+    elif args.command == 'url':
         notes_dir = get_notes_dir()
         link_manager = LinkManager(notes_dir)
 
-        if args.links_command == 'catalog':
+        if args.url_command == 'catalog':
             link_manager.catalog()
-        elif args.links_command == 'audit':
+        elif args.url_command == 'audit':
             link_manager.audit()
-        elif args.links_command == 'ls':
+        elif args.url_command == 'ls':
             link_manager.list_links(dead_only=args.dead, domain=args.domain)
+        elif args.url_command == 'browse':
+            link_manager.browse_urls(dead_only=args.dead, domain=args.domain)
         else:
-            print('usage: qn links {catalog,audit,ls}')
+            print('usage: qn url {catalog,audit,ls,browse}')
             print('  catalog  - Scan notes and build/update link index')
             print('  audit    - Check for duplicate and dead links')
             print('  ls       - List all links (--dead, --domain)')
+            print('  browse   - Open web interface to browse URLs')
     else:
         create_note()
 

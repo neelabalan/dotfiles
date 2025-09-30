@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QN URL Browser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .url-item:hover {
+        background-color: rgba(59, 130, 246, 0.1);
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 dark:bg-gray-900">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+        <h1 class="text-3xl font-bold mb-6 text-gray-900 dark:text-white">
+          URL Browser
+        </h1>
+        <div class="mb-6 flex gap-4 flex-wrap">
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="Search URLs and titles..."
+            class="flex-1 min-w-64 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          />
+          <select
+            id="statusFilter"
+            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+          >
+            <option value="all">All Status</option>
+            <option value="active">Active Only</option>
+            <option value="dead">Dead Only</option>
+          </select>
+          <select
+            id="sortBy"
+            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+          >
+            <option value="domain">Sort by Domain</option>
+            <option value="title">Sort by Title</option>
+            <option value="status">Sort by Status</option>
+          </select>
+        </div>
+        <div
+          id="stats"
+          class="mb-4 text-sm text-gray-600 dark:text-gray-400"
+        ></div>
+        <div id="urlList" class="space-y-2"></div>
+      </div>
+    </div>
+    <script>
+      const urlsData = {{URLS_DATA}};
+      let filteredUrls = urlsData;
+
+      function renderUrls() {
+      const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+      const statusFilter = document.getElementById('statusFilter').value;
+      const sortBy = document.getElementById('sortBy').value;
+
+      filteredUrls = urlsData.filter(item => {
+      const matchesSearch = item.url.toLowerCase().includes(searchTerm) ||
+                           (item.title && item.title.toLowerCase().includes(searchTerm));
+      const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
+      return matchesSearch && matchesStatus;
+      });
+
+      if (sortBy === 'domain') {
+      filteredUrls.sort((a, b) => a.domain.localeCompare(b.domain));
+      } else if (sortBy === 'title') {
+      filteredUrls.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      } else if (sortBy === 'status') {
+      filteredUrls.sort((a, b) => a.status.localeCompare(b.status));
+      }
+
+      const urlList = document.getElementById('urlList');
+      urlList.innerHTML = '';
+
+      const grouped = {};
+      filteredUrls.forEach(item => {
+      if (!grouped[item.domain]) grouped[item.domain] = [];
+      grouped[item.domain].push(item);
+      });
+
+      Object.keys(grouped).sort().forEach(domain => {
+      const domainDiv = document.createElement('div');
+      domainDiv.className = 'mb-4';
+      domainDiv.innerHTML = `<h2 class="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">${domain} (${grouped[domain].length})</h2>`;
+
+      grouped[domain].forEach(item => {
+      const statusColor = item.status === 'active' ? 'text-green-600' : 'text-red-600';
+      const statusIcon = item.status === 'active' ? '✓' : '✗';
+      const itemDiv = document.createElement('div');
+      itemDiv.className = 'url-item p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer transition-colors';
+      itemDiv.innerHTML = `
+      <div class="flex items-start justify-between">
+      <div class="flex-1">
+      <div class="flex items-center gap-2">
+      <span class="${statusColor} font-bold">${statusIcon}</span>
+      <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all">${item.url}</a>
+      </div>
+      ${item.title ? `<div class="text-sm text-gray-600 dark:text-gray-400 mt-1">${item.title}</div>` : ''}
+      <div class="text-xs text-gray-500 dark:text-gray-500 mt-1">
+      Found in ${item.note_count} note${item.note_count > 1 ? 's' : ''}
+      ${item.status !== 'active' ? ` • Status: ${item.status_code}` : ''}
+      </div>
+      </div>
+      </div>
+      `;
+      domainDiv.appendChild(itemDiv);
+      });
+
+      urlList.appendChild(domainDiv);
+      });
+
+      document.getElementById('stats').textContent = `Showing ${filteredUrls.length} of ${urlsData.length} URLs`;
+      }
+
+      document.getElementById('searchInput').addEventListener('input', renderUrls);
+      document.getElementById('statusFilter').addEventListener('change', renderUrls);
+      document.getElementById('sortBy').addEventListener('change', renderUrls);
+
+      document.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault();
+      document.getElementById('searchInput').focus();
+      }
+      if (e.key === 'Escape') {
+      document.getElementById('searchInput').value = '';
+      renderUrls();
+      }
+      });
+
+      renderUrls();
+    </script>
+  </body>
+</html>
