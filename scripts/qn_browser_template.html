@@ -1,139 +1,282 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QN URL Browser</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-      body {
-        font-family: system-ui, -apple-system, sans-serif;
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bookmarks</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .url-row:hover {
+      background-color: rgba(59, 130, 246, 0.05);
+    }
+
+    .sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .sortable:hover {
+      background-color: rgba(59, 130, 246, 0.1);
+    }
+
+    table {
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    .url-col {
+      width: 40%;
+      min-width: 300px;
+    }
+
+    .title-col {
+      width: 45%;
+    }
+
+    .date-col {
+      width: 15%;
+      min-width: 120px;
+    }
+
+    @media (max-width: 768px) {
+      .desktop-table {
+        display: none;
       }
-      .url-item:hover {
-        background-color: rgba(59, 130, 246, 0.1);
+
+      .mobile-cards {
+        display: block;
       }
-    </style>
-  </head>
-  <body class="bg-gray-50 dark:bg-gray-900">
-    <div class="container mx-auto px-4 py-8 max-w-6xl">
-      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-        <h1 class="text-3xl font-bold mb-6 text-gray-900 dark:text-white">
-          URL Browser
-        </h1>
-        <div class="mb-6 flex gap-4 flex-wrap">
-          <input
-            type="text"
-            id="searchInput"
-            placeholder="Search URLs and titles..."
-            class="flex-1 min-w-64 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-          />
-          <select
-            id="statusFilter"
-            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active Only</option>
-            <option value="dead">Dead Only</option>
-          </select>
-          <select
-            id="sortBy"
-            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-          >
-            <option value="domain">Sort by Domain</option>
-            <option value="title">Sort by Title</option>
-            <option value="status">Sort by Status</option>
-          </select>
-        </div>
-        <div
-          id="stats"
-          class="mb-4 text-sm text-gray-600 dark:text-gray-400"
-        ></div>
-        <div id="urlList" class="space-y-2"></div>
+    }
+
+    @media (min-width: 769px) {
+      .desktop-table {
+        display: table;
+      }
+
+      .mobile-cards {
+        display: none;
+      }
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 dark:bg-gray-900">
+  <div class="container mx-auto px-4 py-6 md:py-8 max-w-7xl">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 md:p-6">
+      <h1 class="text-2xl md:text-3xl font-bold mb-4 md:mb-6 text-gray-900 dark:text-white">Bookmarks</h1>
+      <div class="mb-4 md:mb-6">
+        <input type="text" id="searchInput" placeholder="Search URLs and titles..."
+          class="w-full px-4 py-2 md:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-base">
+      </div>
+
+      <div class="overflow-x-auto desktop-table">
+        <table class="w-full">
+          <thead class="bg-gray-100 dark:bg-gray-700">
+            <tr>
+              <th class="sortable url-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300"
+                data-sort="url">
+                URL <span class="sort-indicator"></span>
+              </th>
+              <th class="sortable title-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300"
+                data-sort="title">
+                Title <span class="sort-indicator"></span>
+              </th>
+              <th class="sortable date-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300"
+                data-sort="last_checked">
+                Last Updated <span class="sort-indicator"></span>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="urlTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="mobile-cards space-y-3" id="mobileCards"></div>
+
+      <div
+        class="mt-4 md:mt-6 flex flex-col md:flex-row items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-400">
+        <div id="stats"></div>
+        <div id="pagination" class="flex gap-2"></div>
       </div>
     </div>
-    <script>
-      const urlsData = {{URLS_DATA}};
-      let filteredUrls = urlsData;
+  </div>
+  <script>
+    const urlsData = {{URLS_DATA}};
+    console.log('Total URLs loaded:', urlsData.length);
+    console.log('Sample URL:', urlsData[0]);
 
-      function renderUrls() {
+    let filteredUrls = urlsData;
+    let currentPage = 1;
+    const itemsPerPage = 50;
+    let sortColumn = 'url';
+    let sortDirection = 'asc';
+
+    function formatDate(isoString) {
+      if (!isoString) return 'N/A';
+      const date = new Date(isoString);
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function sortData(column) {
+      if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortColumn = column;
+        sortDirection = 'asc';
+      }
+      updateSortIndicators();
+      renderContent();
+    }
+
+    function updateSortIndicators() {
+      document.querySelectorAll('.sort-indicator').forEach(el => el.textContent = '');
+      const activeHeader = document.querySelector(`[data-sort="${sortColumn}"] .sort-indicator`);
+      if (activeHeader) {
+        activeHeader.textContent = sortDirection === 'asc' ? ' ↑' : ' ↓';
+      }
+    }
+
+    function filterAndSort() {
       const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-      const statusFilter = document.getElementById('statusFilter').value;
-      const sortBy = document.getElementById('sortBy').value;
 
       filteredUrls = urlsData.filter(item => {
-      const matchesSearch = item.url.toLowerCase().includes(searchTerm) ||
-                           (item.title && item.title.toLowerCase().includes(searchTerm));
-      const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
-      return matchesSearch && matchesStatus;
+        return item.url.toLowerCase().includes(searchTerm) ||
+          (item.title && item.title.toLowerCase().includes(searchTerm));
       });
 
-      if (sortBy === 'domain') {
-      filteredUrls.sort((a, b) => a.domain.localeCompare(b.domain));
-      } else if (sortBy === 'title') {
-      filteredUrls.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      } else if (sortBy === 'status') {
-      filteredUrls.sort((a, b) => a.status.localeCompare(b.status));
-      }
-
-      const urlList = document.getElementById('urlList');
-      urlList.innerHTML = '';
-
-      const grouped = {};
-      filteredUrls.forEach(item => {
-      if (!grouped[item.domain]) grouped[item.domain] = [];
-      grouped[item.domain].push(item);
+      filteredUrls.sort((a, b) => {
+        let aVal = a[sortColumn] || '';
+        let bVal = b[sortColumn] || '';
+        if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+        }
+        if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
       });
 
-      Object.keys(grouped).sort().forEach(domain => {
-      const domainDiv = document.createElement('div');
-      domainDiv.className = 'mb-4';
-      domainDiv.innerHTML = `<h2 class="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">${domain} (${grouped[domain].length})</h2>`;
+      currentPage = 1;
+    }
 
-      grouped[domain].forEach(item => {
-      const statusColor = item.status === 'active' ? 'text-green-600' : 'text-red-600';
-      const statusIcon = item.status === 'active' ? '✓' : '✗';
-      const itemDiv = document.createElement('div');
-      itemDiv.className = 'url-item p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer transition-colors';
-      itemDiv.innerHTML = `
-      <div class="flex items-start justify-between">
-      <div class="flex-1">
-      <div class="flex items-center gap-2">
-      <span class="${statusColor} font-bold">${statusIcon}</span>
-      <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all">${item.url}</a>
-      </div>
-      ${item.title ? `<div class="text-sm text-gray-600 dark:text-gray-400 mt-1">${item.title}</div>` : ''}
-      <div class="text-xs text-gray-500 dark:text-gray-500 mt-1">
-      Found in ${item.note_count} note${item.note_count > 1 ? 's' : ''}
-      ${item.status !== 'active' ? ` • Status: ${item.status_code}` : ''}
-      </div>
-      </div>
-      </div>
-      `;
-      domainDiv.appendChild(itemDiv);
+    function renderContent() {
+      filterAndSort();
+      console.log('Filtered URLs:', filteredUrls.length);
+      renderDesktopTable();
+      renderMobileCards();
+      renderPagination();
+      updateStats();
+    }
+
+    function renderDesktopTable() {
+      const tbody = document.getElementById('urlTableBody');
+      tbody.innerHTML = '';
+
+      const startIdx = (currentPage - 1) * itemsPerPage;
+      const endIdx = Math.min(startIdx + itemsPerPage, filteredUrls.length);
+      const pageUrls = filteredUrls.slice(startIdx, endIdx);
+
+      console.log('Rendering desktop table:', pageUrls.length, 'URLs');
+
+      pageUrls.forEach(item => {
+        const row = document.createElement('tr');
+        row.className = 'url-row border-b border-gray-200 dark:border-gray-700';
+
+        row.innerHTML = `
+<td class="px-4 py-3">
+<a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-sm">${item.url}</a>
+</td>
+<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">${item.title || '<span class="text-gray-400">No title</span>'}</td>
+<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">${formatDate(item.last_checked)}</td>
+`;
+        tbody.appendChild(row);
       });
+    }
 
-      urlList.appendChild(domainDiv);
+    function renderMobileCards() {
+      const container = document.getElementById('mobileCards');
+      container.innerHTML = '';
+
+      const startIdx = (currentPage - 1) * itemsPerPage;
+      const endIdx = Math.min(startIdx + itemsPerPage, filteredUrls.length);
+      const pageUrls = filteredUrls.slice(startIdx, endIdx);
+
+      console.log('Rendering mobile cards:', pageUrls.length, 'URLs');
+
+      pageUrls.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 shadow-sm';
+
+        card.innerHTML = `
+<a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-base font-medium block mb-2">${item.url}</a>
+${item.title ? `<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">${item.title}</div>` : ''}
+<div class="text-xs text-gray-500 dark:text-gray-400">Updated: ${formatDate(item.last_checked)}</div>
+`;
+        container.appendChild(card);
       });
+    }
 
-      document.getElementById('stats').textContent = `Showing ${filteredUrls.length} of ${urlsData.length} URLs`;
-      }
+    function renderPagination() {
+      const totalPages = Math.ceil(filteredUrls.length / itemsPerPage);
+      const pagination = document.getElementById('pagination');
+      pagination.innerHTML = '';
 
-      document.getElementById('searchInput').addEventListener('input', renderUrls);
-      document.getElementById('statusFilter').addEventListener('change', renderUrls);
-      document.getElementById('sortBy').addEventListener('change', renderUrls);
+      if (totalPages <= 1) return;
 
-      document.addEventListener('keydown', (e) => {
+      const prevBtn = document.createElement('button');
+      prevBtn.textContent = '← Prev';
+      prevBtn.className = `px-3 py-2 rounded text-sm md:text-base ${currentPage === 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed dark:bg-gray-700' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+      prevBtn.disabled = currentPage === 1;
+      prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderContent(); } };
+      pagination.appendChild(prevBtn);
+
+      const pageInfo = document.createElement('span');
+      pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+      pageInfo.className = 'px-3 py-2 text-sm md:text-base';
+      pagination.appendChild(pageInfo);
+
+      const nextBtn = document.createElement('button');
+      nextBtn.textContent = 'Next →';
+      nextBtn.className = `px-3 py-2 rounded text-sm md:text-base ${currentPage === totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed dark:bg-gray-700' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+      nextBtn.disabled = currentPage === totalPages;
+      nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; renderContent(); } };
+      pagination.appendChild(nextBtn);
+    }
+
+    function updateStats() {
+      const startIdx = (currentPage - 1) * itemsPerPage + 1;
+      const endIdx = Math.min(startIdx + itemsPerPage - 1, filteredUrls.length);
+      document.getElementById('stats').textContent = filteredUrls.length > 0
+        ? `Showing ${startIdx}-${endIdx} of ${filteredUrls.length} URLs`
+        : 'No URLs found';
+    }
+
+    document.getElementById('searchInput').addEventListener('input', renderContent);
+
+    document.querySelectorAll('.sortable').forEach(header => {
+      header.addEventListener('click', () => sortData(header.dataset.sort));
+    });
+
+    document.addEventListener('keydown', (e) => {
       if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
-      e.preventDefault();
-      document.getElementById('searchInput').focus();
+        e.preventDefault();
+        document.getElementById('searchInput').focus();
       }
       if (e.key === 'Escape') {
-      document.getElementById('searchInput').value = '';
-      renderUrls();
+        document.getElementById('searchInput').value = '';
+        renderContent();
       }
-      });
+    });
 
-      renderUrls();
-    </script>
-  </body>
+    updateSortIndicators();
+    renderContent();
+    console.log('Initial render complete');
+  </script>
+</body>
+
 </html>

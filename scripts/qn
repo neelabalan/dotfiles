@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import concurrent.futures
 import datetime
 import html.parser
 import http.server
@@ -281,7 +282,7 @@ class LinkManager:
         orphaned_urls = db_urls - set(current_urls.keys())
 
         if orphaned_urls:
-            print(f'cleaning up:')
+            print('cleaning up:')
             print(f'  removed {len(orphaned_urls)} orphaned links no longer in notes\n')
             for url in orphaned_urls:
                 cursor.execute('DELETE FROM links WHERE url = ?', (url,))
@@ -293,21 +294,33 @@ class LinkManager:
         if new_urls:
             print(f'  fetching metadata for {len(new_urls)} new links...')
 
-            for i, url in enumerate(new_urls, 1):
-                title, status, status_code = self.fetch_url_metadata(url)
-                domain = urllib.parse.urlparse(url).netloc
-                now = datetime.datetime.now().isoformat()
+            results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_url = {executor.submit(self.fetch_url_metadata, url): url for url in new_urls}
 
+                completed = 0
+                for future in concurrent.futures.as_completed(future_to_url):
+                    url = future_to_url[future]
+                    try:
+                        title, status, status_code = future.result()
+                        domain = urllib.parse.urlparse(url).netloc
+                        now = datetime.datetime.now().isoformat()
+                        results.append((url, title, status, status_code, now, domain, now))
+
+                        completed += 1
+                        if completed % 10 == 0:
+                            print(f'    processed {completed}/{len(new_urls)}...')
+                    except Exception as e:
+                        print(f'    error processing {url}: {e}')
+
+            for result in results:
                 cursor.execute(
                     """
                     INSERT INTO links (url, title, status, status_code, last_checked, domain, first_seen)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (url, title, status, status_code, now, domain, now),
+                    result,
                 )
-
-                if i % 10 == 0:
-                    print(f'    processed {i}/{len(new_urls)}...')
 
         cursor.execute('DELETE FROM link_locations')
         for url, locations in current_urls.items():
@@ -461,12 +474,11 @@ class LinkManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        query = '''
-            SELECT l.url, l.title, l.status, l.status_code, l.domain, COUNT(ll.url) as note_count
+        query = """
+            SELECT l.url, l.title, l.status, l.status_code, l.domain, l.last_checked
             FROM links l
-            LEFT JOIN link_locations ll ON l.url = ll.url
             WHERE 1=1
-        '''
+        """
         params = []
 
         if dead_only:
@@ -476,22 +488,24 @@ class LinkManager:
             query += ' AND l.domain = ?'
             params.append(domain)
 
-        query += ' GROUP BY l.url ORDER BY l.domain, l.url'
+        query += ' ORDER BY l.domain, l.url'
 
         cursor.execute(query, params)
         links = cursor.fetchall()
         conn.close()
 
         urls_data = []
-        for url, title, status, status_code, link_domain, note_count in links:
-            urls_data.append({
-                'url': url,
-                'title': title,
-                'status': status,
-                'status_code': status_code,
-                'domain': link_domain,
-                'note_count': note_count
-            })
+        for url, title, status, status_code, link_domain, last_checked in links:
+            urls_data.append(
+                {
+                    'url': url,
+                    'title': title,
+                    'status': status,
+                    'status_code': status_code,
+                    'domain': link_domain,
+                    'last_checked': last_checked,
+                }
+            )
 
         template_path = pathlib.Path(__file__).parent / 'qn_browser_template.html'
         html_content = template_path.read_text()
