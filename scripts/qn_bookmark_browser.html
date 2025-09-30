@@ -87,8 +87,8 @@
                 Title <span class="sort-indicator"></span>
               </th>
               <th class="sortable date-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300"
-                data-sort="last_checked">
-                Last Updated <span class="sort-indicator"></span>
+                data-sort="first_seen">
+                Added <span class="sort-indicator"></span>
               </th>
             </tr>
           </thead>
@@ -192,7 +192,7 @@
 <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-sm">${item.url}</a>
 </td>
 <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">${item.title || '<span class="text-gray-400">No title</span>'}</td>
-<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">${formatDate(item.last_checked)}</td>
+<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">${formatDate(item.first_seen)}</td>
 `;
         tbody.appendChild(row);
       });
@@ -215,7 +215,7 @@
         card.innerHTML = `
 <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-base font-medium block mb-2">${item.url}</a>
 ${item.title ? `<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">${item.title}</div>` : ''}
-<div class="text-xs text-gray-500 dark:text-gray-400">Updated: ${formatDate(item.last_checked)}</div>
+<div class="text-xs text-gray-500 dark:text-gray-400">Added: ${formatDate(item.first_seen)}</div>
 `;
         container.appendChild(card);
       });

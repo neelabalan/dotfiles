@@ -173,35 +173,52 @@ class TitleExtractor(html.parser.HTMLParser):
 class LinkManager:
     def __init__(self, notes_dir: pathlib.Path):
         self.notes_dir = notes_dir
-        self.db_path = pathlib.Path.home() / '.dotfiles' / '.qn_links.db'
+        self.db_path = pathlib.Path.home() / '.dotfiles' / '.qn.db'
         self._init_db()
 
     def _init_db(self) -> None:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS links (
-                url TEXT PRIMARY KEY,
-                title TEXT,
-                status TEXT,
-                status_code INTEGER,
-                last_checked TIMESTAMP,
-                domain TEXT,
-                first_seen TIMESTAMP
-            )
-        """)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='link_locations'")
+        has_old_schema = cursor.fetchone() is not None
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS link_locations (
-                url TEXT,
-                file_path TEXT,
-                line_number INTEGER,
-                FOREIGN KEY (url) REFERENCES links(url) ON DELETE CASCADE
-            )
-        """)
+        if has_old_schema:
+            cursor.execute('PRAGMA table_info(links)')
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'file_path' not in columns:
+                print('migrating database schema...')
 
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_url ON link_locations(url)')
+                cursor.execute('ALTER TABLE links ADD COLUMN file_path TEXT')
+
+                cursor.execute("""
+                    UPDATE links
+                    SET file_path = (
+                        SELECT file_path
+                        FROM link_locations
+                        WHERE link_locations.url = links.url
+                        LIMIT 1
+                    )
+                """)
+
+                cursor.execute('DROP TABLE IF EXISTS link_locations')
+                cursor.execute('DROP INDEX IF EXISTS idx_url')
+
+                print('migration complete')
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS links (
+                    url TEXT PRIMARY KEY,
+                    title TEXT,
+                    status TEXT,
+                    status_code INTEGER,
+                    last_checked TIMESTAMP,
+                    domain TEXT,
+                    first_seen TIMESTAMP,
+                    file_path TEXT
+                )
+            """)
+
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain ON links(domain)')
 
         conn.commit()
@@ -268,27 +285,25 @@ class LinkManager:
 
             for url, line_num in urls:
                 if url not in current_urls:
-                    current_urls[url] = []
-                current_urls[url].append((str(relative_path), line_num))
+                    current_urls[url] = str(relative_path)
 
         print(f'found {len(current_urls)} unique links across {len(markdown_files)} notes\n')
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute('SELECT url FROM links')
-        db_urls = {row[0] for row in cursor.fetchall()}
+        cursor.execute('SELECT url, first_seen FROM links')
+        db_data = {row[0]: row[1] for row in cursor.fetchall()}
 
-        orphaned_urls = db_urls - set(current_urls.keys())
+        orphaned_urls = set(db_data.keys()) - set(current_urls.keys())
 
         if orphaned_urls:
             print('cleaning up:')
             print(f'  removed {len(orphaned_urls)} orphaned links no longer in notes\n')
             for url in orphaned_urls:
                 cursor.execute('DELETE FROM links WHERE url = ?', (url,))
-                cursor.execute('DELETE FROM link_locations WHERE url = ?', (url,))
 
-        new_urls = set(current_urls.keys()) - db_urls
+        new_urls = set(current_urls.keys()) - set(db_data.keys())
 
         print('updating index:')
         if new_urls:
@@ -305,7 +320,8 @@ class LinkManager:
                         title, status, status_code = future.result()
                         domain = urllib.parse.urlparse(url).netloc
                         now = datetime.datetime.now().isoformat()
-                        results.append((url, title, status, status_code, now, domain, now))
+                        file_path = current_urls[url]
+                        results.append((url, title, status, status_code, now, domain, now, file_path))
 
                         completed += 1
                         if completed % 10 == 0:
@@ -316,22 +332,15 @@ class LinkManager:
             for result in results:
                 cursor.execute(
                     """
-                    INSERT INTO links (url, title, status, status_code, last_checked, domain, first_seen)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO links (url, title, status, status_code, last_checked, domain, first_seen, file_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     result,
                 )
 
-        cursor.execute('DELETE FROM link_locations')
-        for url, locations in current_urls.items():
-            for file_path, line_num in locations:
-                cursor.execute(
-                    """
-                    INSERT INTO link_locations (url, file_path, line_number)
-                    VALUES (?, ?, ?)
-                """,
-                    (url, file_path, line_num),
-                )
+        for url, file_path in current_urls.items():
+            if url not in new_urls:
+                cursor.execute('UPDATE links SET file_path = ? WHERE url = ?', (file_path, url))
 
         conn.commit()
         conn.close()
@@ -344,85 +353,19 @@ class LinkManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT url, COUNT(*) as count
-            FROM link_locations
-            GROUP BY url
-            HAVING count > 1
-            ORDER BY count DESC
-        """)
-
-        duplicates = cursor.fetchall()
-
-        if duplicates:
-            print(f'DUPLICATE LINKS ({len(duplicates)} found):\n')
-
-            for url, count in duplicates:
-                cursor.execute(
-                    """
-                    SELECT title, status, status_code
-                    FROM links
-                    WHERE url = ?
-                """,
-                    (url,),
-                )
-
-                link_data = cursor.fetchone()
-                title, status, status_code = link_data if link_data else (None, 'unknown', 0)
-
-                status_display = f'[{status.upper()}]' if status == 'active' else f'[{status_code} {status.upper()}]'
-                print(f'{url} {status_display}')
-
-                if title:
-                    print(f'  Title: "{title}"')
-
-                print(f'  Found in {count} notes:')
-
-                cursor.execute(
-                    """
-                    SELECT file_path, line_number
-                    FROM link_locations
-                    WHERE url = ?
-                    ORDER BY file_path
-                """,
-                    (url,),
-                )
-
-                locations = cursor.fetchall()
-                for file_path, line_num in locations:
-                    print(f'    - {file_path} (line {line_num})')
-
-                print()
-        else:
-            print('no duplicate links found\n')
-
         print('checking link status...')
-        cursor.execute('SELECT url, title, status_code FROM links WHERE status = "dead"')
+        cursor.execute('SELECT url, title, status_code, file_path FROM links WHERE status = "dead"')
         dead_links = cursor.fetchall()
 
         if dead_links:
             print(f'\nDEAD LINKS ({len(dead_links)} found):\n')
 
-            for url, title, status_code in dead_links:
+            for url, title, status_code, file_path in dead_links:
                 print(f'{url} [{status_code} NOT FOUND]')
                 if title:
                     print(f'  Title: "{title}"')
-
-                cursor.execute(
-                    """
-                    SELECT file_path, line_number
-                    FROM link_locations
-                    WHERE url = ?
-                """,
-                    (url,),
-                )
-
-                locations = cursor.fetchall()
-                if locations:
-                    print('  Found in:')
-                    for file_path, line_num in locations:
-                        print(f'    - {file_path} (line {line_num})')
-
+                if file_path:
+                    print(f'  Found in: {file_path}')
                 print()
         else:
             print('no dead links found')
@@ -475,7 +418,7 @@ class LinkManager:
         cursor = conn.cursor()
 
         query = """
-            SELECT l.url, l.title, l.status, l.status_code, l.domain, l.last_checked
+            SELECT l.url, l.title, l.status, l.status_code, l.domain, l.first_seen
             FROM links l
             WHERE 1=1
         """
@@ -495,7 +438,7 @@ class LinkManager:
         conn.close()
 
         urls_data = []
-        for url, title, status, status_code, link_domain, last_checked in links:
+        for url, title, status, status_code, link_domain, first_seen in links:
             urls_data.append(
                 {
                     'url': url,
@@ -503,11 +446,11 @@ class LinkManager:
                     'status': status,
                     'status_code': status_code,
                     'domain': link_domain,
-                    'last_checked': last_checked,
+                    'first_seen': first_seen,
                 }
             )
 
-        template_path = pathlib.Path(__file__).parent / 'qn_browser_template.html'
+        template_path = pathlib.Path(__file__).parent / 'qn_bookmark_browser.html'
         html_content = template_path.read_text()
         html_content = html_content.replace('{{URLS_DATA}}', json.dumps(urls_data))
 
