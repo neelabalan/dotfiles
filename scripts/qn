@@ -2,13 +2,19 @@
 
 import argparse
 import datetime
+import html.parser
 import json
 import pathlib
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import textwrap
+import typing
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 
 
@@ -138,6 +144,314 @@ class GPGEncryption:
             return True
         except subprocess.CalledProcessError:
             return False
+
+
+class TitleExtractor(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_title = False
+        self.title = ''
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == 'title':
+            self.in_title = True
+
+    def handle_endtag(self, tag):
+        if tag.lower() == 'title':
+            self.in_title = False
+
+    def handle_data(self, data):
+        if self.in_title:
+            self.title += data
+
+
+class LinkManager:
+    def __init__(self, notes_dir: pathlib.Path):
+        self.notes_dir = notes_dir
+        self.db_path = pathlib.Path.home() / '.dotfiles' / '.qn_links.db'
+        self._init_db()
+
+    def _init_db(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS links (
+                url TEXT PRIMARY KEY,
+                title TEXT,
+                status TEXT,
+                status_code INTEGER,
+                last_checked TIMESTAMP,
+                domain TEXT,
+                first_seen TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS link_locations (
+                url TEXT,
+                file_path TEXT,
+                line_number INTEGER,
+                FOREIGN KEY (url) REFERENCES links(url) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_url ON link_locations(url)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain ON links(domain)')
+
+        conn.commit()
+        conn.close()
+
+    def extract_urls_from_file(self, file_path: pathlib.Path) -> list[tuple[str, int]]:
+        urls = []
+        try:
+            content = file_path.read_text(encoding='utf-8', errors='ignore')
+            lines = content.split('\n')
+
+            in_code_block = False
+            for line_num, line in enumerate(lines, 1):
+                if line.strip().startswith('```'):
+                    in_code_block = not in_code_block
+                    continue
+
+                if in_code_block:
+                    continue
+
+                url_pattern = r'https?://[^\s\)\]>]+'
+                matches = re.finditer(url_pattern, line)
+                for match in matches:
+                    url = match.group(0)
+                    url = url.rstrip('.,;:!?')
+                    urls.append((url, line_num))
+
+        except OSError:
+            pass
+
+        return urls
+
+    def fetch_url_metadata(self, url: str, timeout: int = 5) -> tuple[typing.Optional[str], str, int]:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; qn-links/1.0)'})
+
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                status_code = response.getcode()
+                content_type = response.headers.get('Content-Type', '')
+
+                title = None
+                if 'text/html' in content_type:
+                    html_content = response.read().decode('utf-8', errors='ignore')
+                    parser = TitleExtractor()
+                    parser.feed(html_content)
+                    title = parser.title.strip() if parser.title else None
+
+                return title, 'active', status_code
+
+        except urllib.error.HTTPError as e:
+            return None, 'dead', e.code
+        except (urllib.error.URLError, TimeoutError, Exception):
+            return None, 'dead', 0
+
+    def catalog(self) -> None:
+        print('scanning notes...')
+
+        current_urls = {}
+        markdown_files = list(self.notes_dir.rglob('*.md'))
+
+        for file_path in markdown_files:
+            relative_path = file_path.relative_to(self.notes_dir)
+            urls = self.extract_urls_from_file(file_path)
+
+            for url, line_num in urls:
+                if url not in current_urls:
+                    current_urls[url] = []
+                current_urls[url].append((str(relative_path), line_num))
+
+        print(f'found {len(current_urls)} unique links across {len(markdown_files)} notes\n')
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT url FROM links')
+        db_urls = {row[0] for row in cursor.fetchall()}
+
+        orphaned_urls = db_urls - set(current_urls.keys())
+
+        if orphaned_urls:
+            print(f'cleaning up:')
+            print(f'  removed {len(orphaned_urls)} orphaned links no longer in notes\n')
+            for url in orphaned_urls:
+                cursor.execute('DELETE FROM links WHERE url = ?', (url,))
+                cursor.execute('DELETE FROM link_locations WHERE url = ?', (url,))
+
+        new_urls = set(current_urls.keys()) - db_urls
+
+        print('updating index:')
+        if new_urls:
+            print(f'  fetching metadata for {len(new_urls)} new links...')
+
+            for i, url in enumerate(new_urls, 1):
+                title, status, status_code = self.fetch_url_metadata(url)
+                domain = urllib.parse.urlparse(url).netloc
+                now = datetime.datetime.now().isoformat()
+
+                cursor.execute(
+                    """
+                    INSERT INTO links (url, title, status, status_code, last_checked, domain, first_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (url, title, status, status_code, now, domain, now),
+                )
+
+                if i % 10 == 0:
+                    print(f'    processed {i}/{len(new_urls)}...')
+
+        cursor.execute('DELETE FROM link_locations')
+        for url, locations in current_urls.items():
+            for file_path, line_num in locations:
+                cursor.execute(
+                    """
+                    INSERT INTO link_locations (url, file_path, line_number)
+                    VALUES (?, ?, ?)
+                """,
+                    (url, file_path, line_num),
+                )
+
+        conn.commit()
+        conn.close()
+
+        print(f'  {len(new_urls)} new links added')
+        print(f'  {len(current_urls) - len(new_urls)} existing links updated')
+        print('\ncatalog complete!')
+
+    def audit(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT url, COUNT(*) as count
+            FROM link_locations
+            GROUP BY url
+            HAVING count > 1
+            ORDER BY count DESC
+        """)
+
+        duplicates = cursor.fetchall()
+
+        if duplicates:
+            print(f'DUPLICATE LINKS ({len(duplicates)} found):\n')
+
+            for url, count in duplicates:
+                cursor.execute(
+                    """
+                    SELECT title, status, status_code
+                    FROM links
+                    WHERE url = ?
+                """,
+                    (url,),
+                )
+
+                link_data = cursor.fetchone()
+                title, status, status_code = link_data if link_data else (None, 'unknown', 0)
+
+                status_display = f'[{status.upper()}]' if status == 'active' else f'[{status_code} {status.upper()}]'
+                print(f'{url} {status_display}')
+
+                if title:
+                    print(f'  Title: "{title}"')
+
+                print(f'  Found in {count} notes:')
+
+                cursor.execute(
+                    """
+                    SELECT file_path, line_number
+                    FROM link_locations
+                    WHERE url = ?
+                    ORDER BY file_path
+                """,
+                    (url,),
+                )
+
+                locations = cursor.fetchall()
+                for file_path, line_num in locations:
+                    print(f'    - {file_path} (line {line_num})')
+
+                print()
+        else:
+            print('no duplicate links found\n')
+
+        print('checking link status...')
+        cursor.execute('SELECT url, title, status_code FROM links WHERE status = "dead"')
+        dead_links = cursor.fetchall()
+
+        if dead_links:
+            print(f'\nDEAD LINKS ({len(dead_links)} found):\n')
+
+            for url, title, status_code in dead_links:
+                print(f'{url} [{status_code} NOT FOUND]')
+                if title:
+                    print(f'  Title: "{title}"')
+
+                cursor.execute(
+                    """
+                    SELECT file_path, line_number
+                    FROM link_locations
+                    WHERE url = ?
+                """,
+                    (url,),
+                )
+
+                locations = cursor.fetchall()
+                if locations:
+                    print('  Found in:')
+                    for file_path, line_num in locations:
+                        print(f'    - {file_path} (line {line_num})')
+
+                print()
+        else:
+            print('no dead links found')
+
+        conn.close()
+
+    def list_links(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        query = 'SELECT url, title, status, status_code, domain FROM links WHERE 1=1'
+        params = []
+
+        if dead_only:
+            query += ' AND status = "dead"'
+
+        if domain:
+            query += ' AND domain = ?'
+            params.append(domain)
+
+        query += ' ORDER BY domain, url'
+
+        cursor.execute(query, params)
+        links = cursor.fetchall()
+
+        if not links:
+            print('no links found')
+            conn.close()
+            return
+
+        print(f'Links ({len(links)} found):\n')
+
+        current_domain = None
+        for url, title, status, status_code, link_domain in links:
+            if link_domain != current_domain:
+                if current_domain is not None:
+                    print()
+                print(f'[{link_domain}]')
+                current_domain = link_domain
+
+            status_display = f'[{status}]' if status == 'active' else f'[{status_code}]'
+            print(f'  {url} {status_display}')
+            if title:
+                print(f'    "{title}"')
+
+        conn.close()
 
 
 def get_config_path() -> pathlib.Path:
@@ -632,6 +946,16 @@ def main() -> None:
     append_parser = subparsers.add_parser('append', aliases=['a'], help='Append text to note')
     append_parser.add_argument('text', nargs='+', help='Text to append')
 
+    links_parser = subparsers.add_parser('links', help='Manage links in notes')
+    links_subparsers = links_parser.add_subparsers(dest='links_command', help='Links commands')
+
+    links_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
+    links_subparsers.add_parser('audit', help='Check for duplicate and dead links')
+
+    ls_parser = links_subparsers.add_parser('ls', help='List all links')
+    ls_parser.add_argument('--dead', action='store_true', help='Show only dead links')
+    ls_parser.add_argument('--domain', type=str, help='Filter by domain')
+
     args = parser.parse_args()
 
     if args.command == 'daily':
@@ -657,6 +981,21 @@ def main() -> None:
         show_statistics()
     elif args.command == 'tags':
         print_all_tags()
+    elif args.command == 'links':
+        notes_dir = get_notes_dir()
+        link_manager = LinkManager(notes_dir)
+
+        if args.links_command == 'catalog':
+            link_manager.catalog()
+        elif args.links_command == 'audit':
+            link_manager.audit()
+        elif args.links_command == 'ls':
+            link_manager.list_links(dead_only=args.dead, domain=args.domain)
+        else:
+            print('usage: qn links {catalog,audit,ls}')
+            print('  catalog  - Scan notes and build/update link index')
+            print('  audit    - Check for duplicate and dead links')
+            print('  ls       - List all links (--dead, --domain)')
     else:
         create_note()
 
