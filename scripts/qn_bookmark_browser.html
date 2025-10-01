@@ -108,7 +108,9 @@
   <script>
     const urlsData = {{URLS_DATA}};
     console.log('Total URLs loaded:', urlsData.length);
-    console.log('Sample URL:', urlsData[0]);
+    if (urlsData.length > 0) {
+      console.log('Sample URL:', urlsData[0]);
+    }
 
     let filteredUrls = urlsData;
     let currentPage = 1;
@@ -193,7 +195,7 @@
 <td class="px-4 py-3">
 <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-sm">${item.url}</a>
 </td>
-<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">${item.title || '<span class="text-gray-400">No title</span>'}</td>
+<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">${item.title ? item.title : '<span class="text-gray-400">No title</span>'}</td>
 <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">${formatDate(item.first_seen)}</td>
 `;
         tbody.appendChild(row);

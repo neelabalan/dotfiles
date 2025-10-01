@@ -171,8 +171,9 @@ class TitleExtractor(html.parser.HTMLParser):
 
 
 class LinkManager:
-    def __init__(self, notes_dir: pathlib.Path):
+    def __init__(self, notes_dir: pathlib.Path, max_workers: int = 10):
         self.notes_dir = notes_dir
+        self.max_workers = max_workers
         self.db_path = pathlib.Path.home() / '.dotfiles' / '.qn.db'
         self._init_db()
 
@@ -310,7 +311,7 @@ class LinkManager:
             print(f'  fetching metadata for {len(new_urls)} new links...')
 
             results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 future_to_url = {executor.submit(self.fetch_url_metadata, url): url for url in new_urls}
 
                 completed = 0
@@ -413,27 +414,17 @@ class LinkManager:
 
         conn.close()
 
-    def browse_urls(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
+    def browse_urls(self, port: int) -> None:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         query = """
             SELECT l.url, l.title, l.status, l.status_code, l.domain, l.first_seen
             FROM links l
-            WHERE 1=1
+            ORDER BY l.domain, l.url
         """
-        params = []
 
-        if dead_only:
-            query += ' AND l.status = "dead"'
-
-        if domain:
-            query += ' AND l.domain = ?'
-            params.append(domain)
-
-        query += ' ORDER BY l.domain, l.url'
-
-        cursor.execute(query, params)
+        cursor.execute(query)
         links = cursor.fetchall()
         conn.close()
 
@@ -452,7 +443,9 @@ class LinkManager:
 
         template_path = pathlib.Path(__file__).parent / 'qn_bookmark_browser.html'
         html_content = template_path.read_text()
-        html_content = html_content.replace('{{URLS_DATA}}', json.dumps(urls_data))
+
+        safe_json = json.dumps(urls_data, ensure_ascii=False, separators=(',', ':'))
+        html_content = html_content.replace('{{URLS_DATA}}', safe_json)
 
         class RequestHandler(http.server.SimpleHTTPRequestHandler):
             def do_GET(self):
@@ -464,7 +457,6 @@ class LinkManager:
             def log_message(self, format, *args):
                 pass
 
-        port = 8765
         with socketserver.TCPServer(('', port), RequestHandler) as httpd:
             url = f'http://localhost:{port}'
             print(f'opening browser at {url}')
@@ -493,6 +485,8 @@ def get_default_config() -> dict[str, str]:
         'age_private_key': '',
         'gpg_recipient': '',
         'gpg_private_key': '',
+        'max_workers': '10',
+        'browser_port': '8765',
     }
 
 
@@ -975,14 +969,7 @@ def main() -> None:
 
     url_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
     url_subparsers.add_parser('audit', help='Check for duplicate and dead links')
-
-    ls_parser = url_subparsers.add_parser('ls', help='List all links')
-    ls_parser.add_argument('--dead', action='store_true', help='Show only dead links')
-    ls_parser.add_argument('--domain', type=str, help='Filter by domain')
-
-    browse_parser = url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
-    browse_parser.add_argument('--dead', action='store_true', help='Show only dead links')
-    browse_parser.add_argument('--domain', type=str, help='Filter by domain')
+    url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
 
     args = parser.parse_args()
 
@@ -1010,22 +997,31 @@ def main() -> None:
     elif args.command == 'tags':
         print_all_tags()
     elif args.command == 'url':
+        config = load_config()
         notes_dir = get_notes_dir()
-        link_manager = LinkManager(notes_dir)
+        max_workers = int(config.get('max_workers', '10'))
+        link_manager = LinkManager(notes_dir, max_workers)
 
         if args.url_command == 'catalog':
             link_manager.catalog()
         elif args.url_command == 'audit':
             link_manager.audit()
-        elif args.url_command == 'ls':
-            link_manager.list_links(dead_only=args.dead, domain=args.domain)
         elif args.url_command == 'browse':
-            link_manager.browse_urls(dead_only=args.dead, domain=args.domain)
+            user_config_path = get_config_path()
+            user_port = None
+            if user_config_path.exists():
+                try:
+                    with open(user_config_path) as f:
+                        user_config = json.load(f)
+                    user_port = user_config.get('browser_port') or user_config.get('port')
+                except (json.JSONDecodeError, OSError):
+                    pass
+            port = int(user_port) if user_port else 8765
+            link_manager.browse_urls(port=port)
         else:
-            print('usage: qn url {catalog,audit,ls,browse}')
+            print('usage: qn url {catalog,audit,browse}')
             print('  catalog  - Scan notes and build/update link index')
             print('  audit    - Check for duplicate and dead links')
-            print('  ls       - List all links (--dead, --domain)')
             print('  browse   - Open web interface to browse URLs')
     else:
         create_note()
