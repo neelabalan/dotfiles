@@ -3,3 +3,4 @@ __pycache__/
 cookie.db
 .devenv
 .qn.json
+.qn.db
