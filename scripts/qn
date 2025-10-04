@@ -585,7 +585,7 @@ def create_daily_note() -> None:
     daily_path.parent.mkdir(parents=True, exist_ok=True)
     daily_path.touch()
 
-    open_in_editor(daily_path)
+    open_in_editor(daily_path, also_open_directory=True)
 
 
 def create_weekly_note() -> None:
@@ -601,7 +601,7 @@ def create_weekly_note() -> None:
     weekly_path = weekly_dir / weekly_filename
 
     weekly_path.touch()
-    open_in_editor(weekly_path)
+    open_in_editor(weekly_path, also_open_directory=True)
 
 
 def create_monthly_note() -> None:
@@ -612,7 +612,7 @@ def create_monthly_note() -> None:
     monthly_path.parent.mkdir(parents=True, exist_ok=True)
     monthly_path.touch()
 
-    open_in_editor(monthly_path)
+    open_in_editor(monthly_path, also_open_directory=True)
 
 
 def open_notes_directory() -> None:
