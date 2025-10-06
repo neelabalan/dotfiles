@@ -277,7 +277,7 @@ class LinkManager:
     def catalog(self) -> None:
         print('scanning notes...')
 
-        current_urls = {}
+        current_urls: dict[str, str] = {}
         markdown_files = list(self.notes_dir.rglob('*.md'))
 
         for file_path in markdown_files:
@@ -321,8 +321,8 @@ class LinkManager:
                         title, status, status_code = future.result()
                         domain = urllib.parse.urlparse(url).netloc
                         now = datetime.datetime.now().isoformat()
-                        file_path = current_urls[url]
-                        results.append((url, title, status, status_code, now, domain, now, file_path))
+                        url_file_path = current_urls[url]
+                        results.append((url, title, status, status_code, now, domain, now, url_file_path))
 
                         completed += 1
                         if completed % 10 == 0:
@@ -339,9 +339,9 @@ class LinkManager:
                     result,
                 )
 
-        for url, file_path in current_urls.items():
+        for url, url_file_path in current_urls.items():
             if url not in new_urls:
-                cursor.execute('UPDATE links SET file_path = ? WHERE url = ?', (file_path, url))
+                cursor.execute('UPDATE links SET file_path = ? WHERE url = ?', (url_file_path, url))
 
         conn.commit()
         conn.close()
@@ -543,7 +543,7 @@ def get_notes_dir() -> pathlib.Path:
 def open_in_editor(file_path: pathlib.Path, also_open_directory: bool = False) -> None:
     config = load_config()
     editor = config['editor']
-    if not editor or ';' in editor or '&' in editor or '|' in editor:
+    if not editor or ';' in editor or '&' in editor or '|' in editor or '$(' in editor or '`' in editor:
         print(f'invalid editor command: {editor}')
         sys.exit(1)
 
@@ -667,7 +667,7 @@ def backup_notes(encrypt: bool = False) -> None:
             print('backup failed')
 
 
-def decrypt_backup(output_dir: str = None) -> None:
+def decrypt_backup(output_dir: typing.Optional[str] = None) -> None:
     config = load_config()
     backup_dir = expand_path(config['backup_dir'])
     encryption_tool = config['encryption_tool']
