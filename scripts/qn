@@ -588,10 +588,11 @@ def create_daily_note() -> None:
     open_in_editor(daily_path, also_open_directory=True)
 
 
-def create_weekly_note() -> None:
+def create_weekly_note(week_offset: int = 0) -> None:
     notes_dir = get_notes_dir()
     today = datetime.date.today()
-    week_start = today - datetime.timedelta(days=today.weekday())
+    target_date = today + datetime.timedelta(weeks=week_offset)
+    week_start = target_date - datetime.timedelta(days=target_date.weekday())
     week_end = week_start + datetime.timedelta(days=6)
 
     weekly_dir = notes_dir / 'weekly'
@@ -946,7 +947,13 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
     subparsers.add_parser('daily', help='Create/open daily note')
-    subparsers.add_parser('weekly', help='Create/open weekly folder')
+
+    weekly_parser = subparsers.add_parser('weekly', help='Create/open weekly notes')
+    weekly_subparsers = weekly_parser.add_subparsers(dest='weekly_command', help='Weekly commands')
+    weekly_subparsers.add_parser('current', aliases=['c'], help='Create/open current week note')
+    weekly_subparsers.add_parser('previous', aliases=['p'], help='Create/open previous week note')
+    weekly_subparsers.add_parser('next', aliases=['n'], help='Create/open next week note')
+
     subparsers.add_parser('monthly', help='Create/open monthly note')
     subparsers.add_parser('open', help='Open notes directory')
     subparsers.add_parser('init', help='Initialize configuration')
@@ -976,7 +983,15 @@ def main() -> None:
     if args.command == 'daily':
         create_daily_note()
     elif args.command == 'weekly':
-        create_weekly_note()
+        if args.weekly_command in ['previous', 'p']:
+            create_weekly_note(week_offset=-1)
+        elif args.weekly_command in ['next', 'n']:
+            create_weekly_note(week_offset=1)
+        elif args.weekly_command in ['current', 'c']:
+            create_weekly_note(week_offset=0)
+        else:
+            # Default behavior when no subcommand is provided
+            create_weekly_note()
     elif args.command == 'monthly':
         create_monthly_note()
     elif args.command == 'open':
