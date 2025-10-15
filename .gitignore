@@ -4,3 +4,4 @@ cookie.db
 .devenv
 .qn.json
 .qn.db
+.pynb.json
