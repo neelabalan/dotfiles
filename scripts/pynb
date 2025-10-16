@@ -164,6 +164,51 @@ def create_notebook_project(profile: str, folder_name: str) -> None:
         subprocess.run(['code', str(project_dir)], check=False)
 
 
+def list_projects(profile: str) -> None:
+    config = load_config()
+
+    if profile not in config['profiles']:
+        print(f"error: profile '{profile}' not found in config")
+        print(f'available profiles: {", ".join(config["profiles"].keys())}')
+        sys.exit(1)
+
+    profile_config = config['profiles'][profile]
+    base_dir = expand_path(profile_config['directory'])
+
+    if not base_dir.exists():
+        print(f'no projects found. directory does not exist: {base_dir}')
+        return
+
+    projects = [d for d in base_dir.iterdir() if d.is_dir()]
+
+    if not projects:
+        print(f'no projects found in {base_dir}')
+        return
+
+    print(f'projects in {base_dir}:')
+    for project in sorted(projects):
+        print(f'  {project.name}')
+
+
+def open_project(profile: str, folder_name: str) -> None:
+    config = load_config()
+
+    if profile not in config['profiles']:
+        print(f"error: profile '{profile}' not found in config")
+        print(f'available profiles: {", ".join(config["profiles"].keys())}')
+        sys.exit(1)
+
+    profile_config = config['profiles'][profile]
+    base_dir = expand_path(profile_config['directory'])
+    project_dir = base_dir / folder_name
+
+    if not project_dir.exists():
+        print(f'error: project {folder_name} does not exist in {base_dir}')
+        sys.exit(1)
+
+    subprocess.run(['code', str(project_dir)], check=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Python Notebook Project Manager')
     subparsers = parser.add_subparsers(dest='command', help='available commands')
@@ -174,12 +219,23 @@ def main() -> None:
     new_parser.add_argument('--profile', '-p', default='default', help='profile to use (default: default)')
     new_parser.add_argument('folder_name', help='name of the folder to create')
 
+    ls_parser = subparsers.add_parser('ls', help='list all notebook projects')
+    ls_parser.add_argument('--profile', '-p', default='default', help='profile to use (default: default)')
+
+    open_parser = subparsers.add_parser('open', help='open an existing notebook project')
+    open_parser.add_argument('--profile', '-p', default='default', help='profile to use (default: default)')
+    open_parser.add_argument('folder_name', help='name of the folder to open')
+
     args = parser.parse_args()
 
     if args.command == 'init':
         initialize_config()
     elif args.command == 'new':
         create_notebook_project(args.profile, args.folder_name)
+    elif args.command == 'ls':
+        list_projects(args.profile)
+    elif args.command == 'open':
+        open_project(args.profile, args.folder_name)
     else:
         parser.print_help()
 
