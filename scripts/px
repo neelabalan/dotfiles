@@ -17,22 +17,25 @@ class ExecutionMode:
 
 
 class Config:
-    CONFIG_PATH = pathlib.Path.home() / ".dotfiles" / ".px.conf"
+    CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.px.json'
 
     def __init__(self):
         self.config = self._load_config()
         self.workspace_root = pathlib.Path(self.config.get('workspace_root', '.'))
-        self.default_dir = self.config.get('default_dir', DEFAULT_DIR)
 
     def _load_config(self) -> dict:
         if self.CONFIG_PATH.exists():
             return json.loads(self.CONFIG_PATH.read_text())
-        return {'workspace_root': '.', 'default_dir': DEFAULT_DIR}
+        return {'workspace_root': '.'}
 
     def get_template_for_path(self, language: str, relative_path: pathlib.Path) -> typing.Optional[dict[str, str]]:
         lang_config = self.config.get(language)
         if not lang_config:
             return None
+
+        for part in relative_path.parts:
+            if part and part[0].isdigit():
+                raise ValueError(f"directory names cannot start with digits: '{part}'")
 
         parts = list(relative_path.parts)
         current = lang_config.get('dirs', {})
@@ -51,7 +54,7 @@ class Config:
     def get_all_directories(self) -> dict[str, list[pathlib.Path]]:
         result = {}
         for language, lang_config in self.config.items():
-            if language in ('workspace_root', 'default_dir'):
+            if language == 'workspace_root':
                 continue
 
             base_path = self.workspace_root / language
@@ -100,7 +103,7 @@ class LanguageHandler(abc.ABC):
 
 
 class PythonHandler(LanguageHandler):
-    EXTENSION = ".py"
+    EXTENSION = '.py'
 
     def detect(self, path: pathlib.Path) -> bool:
         if path.is_file():
@@ -139,7 +142,7 @@ class PythonHandler(LanguageHandler):
 
 
 class RustHandler(LanguageHandler):
-    EXTENSION = ".rs"
+    EXTENSION = '.rs'
 
     def detect(self, path: pathlib.Path) -> bool:
         if path.is_file():
@@ -280,7 +283,7 @@ path = "lib.rs"
 
 
 class GoHandler(LanguageHandler):
-    EXTENSION = ".go"
+    EXTENSION = '.go'
 
     def detect(self, path: pathlib.Path) -> bool:
         if path.is_file():
@@ -356,142 +359,106 @@ go 1.23
         print(f'created: {go_mod_path}')
 
 
-LANGUAGE_HANDLER_MAP = {
-    "python": PythonHandler(),
-    "rust": RustHandler(),
-    "go": GoHandler()
+LANGUAGE_HANDLER_MAP: dict[str, LanguageHandler] = {'python': PythonHandler(), 'rust': RustHandler(), 'go': GoHandler()}
 
-}
 
-class Runner:
-    def __init__(self, config: Config):
-        self.config = config
+def detect_handler(path: pathlib.Path) -> typing.Optional[LanguageHandler]:
+    for handler in LANGUAGE_HANDLER_MAP.values():
+        if handler.detect(path):
+            return handler
+    return None
 
-    def run(self, path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
-        if not path.exists():
-            print(f'error: {path} does not exist', file=sys.stderr)
-            return 1
 
-        handler = self._detect_handler(path)
+def detect_language_from_path(config: Config, path: pathlib.Path) -> typing.Optional[str]:
+    all_dirs = config.get_all_directories()
+    for language, dirs in all_dirs.items():
+        for base_dir in dirs:
+            if str(path).startswith(str(base_dir)):
+                return language
+            try:
+                path.relative_to(base_dir)
+                return language
+            except ValueError:
+                continue
+    return None
 
-        if not handler:
-            print(f'error: could not detect language for {path}', file=sys.stderr)
-            return 1
 
-        try:
-            result = handler.execute(path, mode)
-            return result.returncode
-        except Exception as e:
-            print(f'error executing: {e}', file=sys.stderr)
-            return 1
+def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
+    if not path.exists():
+        print(f'error: {path} does not exist', file=sys.stderr)
+        return 1
 
-    def init_directories(self) -> int:
-        try:
-            all_dirs = self.config.get_all_directories()
-            for language, dirs in all_dirs.items():
-                for dir_path in dirs:
-                    dir_path.mkdir(parents=True, exist_ok=True)
-                    print(f'created: {dir_path}')
+    handler = detect_handler(path)
+    if not handler:
+        print(f'error: could not detect language for {path}', file=sys.stderr)
+        return 1
 
-                # Initialize language-specific project structure
-                handler = self._get_handler_for_language(language)
-                if handler:
-                    base_path = self.config.workspace_root / language
-                    handler.init_project(base_path)
+    try:
+        result = handler.execute(path, mode)
+        return result.returncode
+    except Exception as e:
+        print(f'error executing: {e}', file=sys.stderr)
+        return 1
 
-            return 0
-        except Exception as e:
-            print(f'error initializing directories: {e}', file=sys.stderr)
-            return 1
 
-    def create_file(self, target_path: typing.Optional[str] = None) -> int:
-        try:
-            if target_path is None:
-                return self._create_in_default_dir()
-
-            path = pathlib.Path(target_path)
-            if not path.is_absolute():
-                path = self.config.workspace_root / path
-
-            language = self._detect_language_from_path(path)
-            if not language:
-                print(f'error: could not detect language from path {target_path}', file=sys.stderr)
-                return 1
-
-            handler = self._get_handler_for_language(language)
-            if not handler:
-                print(f'error: no handler for language {language}', file=sys.stderr)
-                return 1
-
-            base_path = self.config.workspace_root / language
-
-            relative_path = path.relative_to(base_path)
-            template = self.config.get_template_for_path(language, relative_path.parent)
-
-            if not template:
-                print(f'error: no template found for path {target_path}', file=sys.stderr)
-                return 1
-
-            source_template = template.get('source_template')
-            test_template = template.get('test_template')
-
-            if not source_template:
-                print("error: template must have 'source_template' key", file=sys.stderr)
-                return 1
-
-            handler.create_files(path, source_template, test_template)
-            return 0
-
-        except Exception as e:
-            print(f'error creating file: {e}', file=sys.stderr)
-            return 1
-
-    def _create_in_default_dir(self) -> int:
-        print('no path provided. choose a language:')
-        print('1. python')
-        print('2. rust')
-        print('3. go')
-        choice = input('enter choice (1-3): ').strip()
-
-        language_map = {'1': 'python', '2': 'rust', '3': 'go'}
-        language = language_map.get(choice)
-
-        if not language:
-            print('invalid choice', file=sys.stderr)
-            return 1
-
-        base_path = self.config.workspace_root / language
-        default_dir_path = base_path / self.config.default_dir
-
-        import datetime
-
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'{self.config.default_dir}_{timestamp}'
-
-        full_path = default_dir_path / filename
-        return self.create_file(str(full_path))
-
-    def _detect_language_from_path(self, path: pathlib.Path) -> typing.Optional[str]:
-        all_dirs = self.config.get_all_directories()
+def init_directories(config: Config) -> int:
+    try:
+        all_dirs = config.get_all_directories()
         for language, dirs in all_dirs.items():
-            for base_dir in dirs:
-                if str(path).startswith(str(base_dir)):
-                    return language
-                try:
-                    path.relative_to(base_dir)
-                    return language
-                except ValueError:
-                    continue
-        return None
+            for dir_path in dirs:
+                dir_path.mkdir(parents=True, exist_ok=True)
+                print(f'created: {dir_path}')
 
-    def _get_handler_for_language(self, language: str) -> typing.Optional[LanguageHandler]:
-        return LANGUAGE_HANDLER_MAP.get(language)
+            handler = LANGUAGE_HANDLER_MAP.get(language)
+            if handler:
+                base_path = config.workspace_root / language
+                handler.init_project(base_path)
 
-    def _detect_handler(self, path: pathlib.Path) -> typing.Optional[LanguageHandler]:
-        for handler in LANGUAGE_HANDLER_MAP.values():
-            if handler.detect(path):
-                return handler
-        return None
+        return 0
+    except Exception as e:
+        print(f'error initializing directories: {e}', file=sys.stderr)
+        return 1
+
+
+def create_file(config: Config, file_arg: str) -> int:
+    try:
+        input_path = pathlib.Path(file_arg)
+        full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
+
+        for lang, handler in LANGUAGE_HANDLER_MAP.items():
+            if full_path.suffix == handler.EXTENSION:
+                language = lang
+                break
+        else:
+            supported = ', '.join(h.EXTENSION for h in LANGUAGE_HANDLER_MAP.values())
+            print(f'error: unsupported file extension {full_path.suffix}. Supported: {supported}', file=sys.stderr)
+            return 1
+
+        language_base = config.workspace_root / language
+        relative_path = full_path.relative_to(language_base)
+
+        template = config.get_template_for_path(language, relative_path.parent)
+        if not template:
+            print(f'error: no template found for path {relative_path.parent}', file=sys.stderr)
+            return 1
+
+        if not template.get('source_template'):
+            print("error: template must have 'source_template' key", file=sys.stderr)
+            return 1
+
+        LANGUAGE_HANDLER_MAP[language].create_files(
+            full_path.with_suffix(''),
+            template['source_template'],
+            template.get('test_template')
+        )
+        return 0
+
+    except ValueError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f'error creating file: {e}', file=sys.stderr)
+        return 1
 
 
 def main():
@@ -506,7 +473,7 @@ def main():
     subparsers.add_parser('init', help='Initialize directory structure from config')
 
     create_parser = subparsers.add_parser('create', help='Create a new file from template')
-    create_parser.add_argument('path', nargs='?', type=str, help='Path where to create file (e.g., python/leetcode/001)')
+    create_parser.add_argument('path', type=str, help='File path to create (e.g., rust/leetcode/p01.rs, leetcode/p01.rs, solution.py)')
 
     test_parser = subparsers.add_parser('test', help='Run tests for a file')
     test_parser.add_argument('path', type=pathlib.Path, help='Path to file to test')
@@ -517,16 +484,15 @@ def main():
     args = parser.parse_args()
 
     config = Config()
-    runner = Runner(config)
 
     if args.command == 'init':
-        return_code = runner.init_directories()
+        return_code = init_directories(config)
     elif args.command == 'create':
-        return_code = runner.create_file(args.path)
+        return_code = create_file(config, args.path)
     elif args.command == 'test':
-        return_code = runner.run(args.path, ExecutionMode.TEST)
+        return_code = run_command(config, args.path, ExecutionMode.TEST)
     elif args.command == 'run':
-        return_code = runner.run(args.path, ExecutionMode.RUN)
+        return_code = run_command(args.path, ExecutionMode.RUN)
     else:
         parser.print_help()
         return_code = 0
