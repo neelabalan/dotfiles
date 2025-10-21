@@ -369,32 +369,22 @@ def detect_handler(path: pathlib.Path) -> typing.Optional[LanguageHandler]:
     return None
 
 
-def detect_language_from_path(config: Config, path: pathlib.Path) -> typing.Optional[str]:
-    all_dirs = config.get_all_directories()
-    for language, dirs in all_dirs.items():
-        for base_dir in dirs:
-            if str(path).startswith(str(base_dir)):
-                return language
-            try:
-                path.relative_to(base_dir)
-                return language
-            except ValueError:
-                continue
-    return None
-
 
 def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
-    if not path.exists():
-        print(f'error: {path} does not exist', file=sys.stderr)
+    input_path = pathlib.Path(path)
+    full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
+
+    if not full_path.exists():
+        print(f'error: {full_path} does not exist', file=sys.stderr)
         return 1
 
-    handler = detect_handler(path)
+    handler = detect_handler(full_path)
     if not handler:
-        print(f'error: could not detect language for {path}', file=sys.stderr)
+        print(f'error: could not detect language for {full_path}', file=sys.stderr)
         return 1
 
     try:
-        result = handler.execute(path, mode)
+        result = handler.execute(full_path, mode)
         return result.returncode
     except Exception as e:
         print(f'error executing: {e}', file=sys.stderr)
@@ -425,6 +415,10 @@ def create_file(config: Config, file_arg: str) -> int:
         input_path = pathlib.Path(file_arg)
         full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
 
+        if full_path.stem and full_path.stem[0].isdigit():
+            print(f"error: filename cannot start with a digit: '{full_path.name}'", file=sys.stderr)
+            return 1
+
         for lang, handler in LANGUAGE_HANDLER_MAP.items():
             if full_path.suffix == handler.EXTENSION:
                 language = lang
@@ -447,9 +441,7 @@ def create_file(config: Config, file_arg: str) -> int:
             return 1
 
         LANGUAGE_HANDLER_MAP[language].create_files(
-            full_path.with_suffix(''),
-            template['source_template'],
-            template.get('test_template')
+            full_path.with_suffix(''), template['source_template'], template.get('test_template')
         )
         return 0
 
@@ -473,7 +465,9 @@ def main():
     subparsers.add_parser('init', help='Initialize directory structure from config')
 
     create_parser = subparsers.add_parser('create', help='Create a new file from template')
-    create_parser.add_argument('path', type=str, help='File path to create (e.g., rust/leetcode/p01.rs, leetcode/p01.rs, solution.py)')
+    create_parser.add_argument(
+        'path', type=str, help='File path to create (e.g., rust/leetcode/p01.rs, leetcode/p01.rs, solution.py)'
+    )
 
     test_parser = subparsers.add_parser('test', help='Run tests for a file')
     test_parser.add_argument('path', type=pathlib.Path, help='Path to file to test')
@@ -490,7 +484,7 @@ def main():
     elif args.command == 'create':
         return_code = create_file(config, args.path)
     elif args.command == 'test':
-        return_code = run_command(config, args.path, ExecutionMode.TEST)
+        return_code = run_command(args.path, ExecutionMode.TEST)
     elif args.command == 'run':
         return_code = run_command(args.path, ExecutionMode.RUN)
     else:
