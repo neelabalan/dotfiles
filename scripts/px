@@ -7,6 +7,7 @@ import pathlib
 import string
 import subprocess
 import sys
+import textwrap
 import typing
 import urllib.request
 
@@ -160,6 +161,35 @@ class PythonHandler(LanguageHandler):
         if not gitignore_path.exists():
             download_gitignore('python', gitignore_path)
 
+        pyproject_path = base_path / 'pyproject.toml'
+        if not pyproject_path.exists():
+            pyproject_content = textwrap.dedent("""
+                [tool.pytest.ini_options]
+                python_files = "*.py"
+            """).strip()
+            pyproject_path.write_text(pyproject_content)
+            print(f'created: {pyproject_path}')
+
+        ruff_path = base_path / '.ruff.toml'
+        if not ruff_path.exists():
+            ruff_content = textwrap.dedent("""
+                fix = true
+                line-length = 121
+
+                [lint]
+                select = ["F", "W", "I001"]
+                fixable = ["I001", "F401"]
+
+                [format]
+                # Prefer single quotes over double quotes.
+                quote-style = "single"
+
+                [lint.isort]
+                force-single-line = true
+            """).strip()
+            ruff_path.write_text(ruff_content)
+            print(f'created: {ruff_path}')
+
     def _run_script(self, path: pathlib.Path) -> subprocess.CompletedProcess:
         if not path.is_file():
             raise ValueError(f'{path} is not a file')
@@ -244,16 +274,17 @@ class RustHandler(LanguageHandler):
         if cargo_path.exists():
             print(f'cargo.toml already exists at {cargo_path}')
         else:
-            cargo_content = """[package]
-name = "rust_problems"
-version = "0.1.0"
-edition = "2021"
+            cargo_content = textwrap.dedent("""
+                [package]
+                name = "rust_problems"
+                version = "0.1.0"
+                edition = "2021"
 
-[dependencies]
+                [dependencies]
 
-[lib]
-path = "lib.rs"
-"""
+                [lib]
+                path = "lib.rs"
+            """).strip()
             cargo_path.write_text(cargo_content)
             print(f'created: {cargo_path}')
 
@@ -383,10 +414,11 @@ class GoHandler(LanguageHandler):
         if go_mod_path.exists():
             print(f'go.mod already exists at {go_mod_path}')
         else:
-            go_mod_content = """module problems
+            go_mod_content = textwrap.dedent("""
+                module problems
 
-go 1.23
-"""
+                go 1.23
+            """).strip()
             go_mod_path.write_text(go_mod_content)
             print(f'created: {go_mod_path}')
 
