@@ -30,54 +30,81 @@ class Config:
     def _load_config(self) -> dict:
         if self.CONFIG_PATH.exists():
             return json.loads(self.CONFIG_PATH.read_text())
-        return {'workspace_root': '.', 'editor': 'code'}
+        return {'workspace_root': '.', 'editor': 'code', 'workspace': []}
 
     def get_template_for_path(self, language: str, relative_path: pathlib.Path) -> typing.Optional[dict[str, str]]:
-        lang_config = self.config.get(language)
-        if not lang_config:
-            return None
-
         for part in relative_path.parts:
             if part and part[0].isdigit():
                 raise ValueError(f"directory names cannot start with digits: '{part}'")
 
-        parts = list(relative_path.parts)
-        current = lang_config.get('dirs', {})
+        workspace_entries = self.config.get('workspace', [])
 
-        for part in parts:
-            if part not in current:
-                break
-            current = current[part]
-            if 'dirs' in current:
-                current = current['dirs']
-            elif 'source_template' in current:
-                return {'source_template': current['source_template'], 'test_template': current.get('test_template')}
+        for entry in workspace_entries:
+            if entry.get('language') != language:
+                continue
+
+            dirs_config = entry.get('dirs', {})
+
+            for base_dir, dir_structure in dirs_config.items():
+                if not relative_path.parts or relative_path.parts[0] != base_dir:
+                    continue
+
+                remaining_parts = list(relative_path.parts[1:])
+                current = dir_structure
+
+                for part in remaining_parts:
+                    if part not in current:
+                        break
+                    current = current[part]
+                else:
+                    if 'source_template' in current:
+                        return {
+                            'source_template': current['source_template'],
+                            'test_template': current.get('test_template'),
+                        }
+
+                for part in remaining_parts:
+                    if part in current:
+                        current = current[part]
+                    elif 'source_template' in current:
+                        return {
+                            'source_template': current['source_template'],
+                            'test_template': current.get('test_template'),
+                        }
+                    else:
+                        break
+
+                if 'source_template' in current:
+                    return {'source_template': current['source_template'], 'test_template': current.get('test_template')}
 
         return None
 
     def get_all_directories(self) -> dict[str, list[pathlib.Path]]:
         result = {}
-        for language, lang_config in self.config.items():
-            if language == 'workspace_root':
+        workspace_entries = self.config.get('workspace', [])
+
+        for entry in workspace_entries:
+            language = entry.get('language')
+            if not language:
                 continue
 
-            base_path = self.workspace_root / language
-            dirs = [base_path]
+            if language not in result:
+                result[language] = []
 
-            def collect_dirs(dir_config: dict, prefix: pathlib.Path):
-                if 'dirs' in dir_config:
-                    for subdir, subconfig in dir_config['dirs'].items():
-                        full_path = prefix / subdir
-                        dirs.append(full_path)
-                        collect_dirs(subconfig, full_path)
+            dirs_config = entry.get('dirs', {})
 
-            if 'dirs' in lang_config:
-                for dirname, dirconfig in lang_config['dirs'].items():
-                    full_path = base_path / dirname
-                    dirs.append(full_path)
-                    collect_dirs(dirconfig, full_path)
+            for base_dir, dir_structure in dirs_config.items():
+                base_path = self.workspace_root / base_dir
+                result[language].append(base_path)
 
-            result[language] = dirs
+                def collect_dirs(dir_config: dict, prefix: pathlib.Path):
+                    for key, value in dir_config.items():
+                        if isinstance(value, dict) and 'source_template' not in value:
+                            full_path = prefix / key
+                            result[language].append(full_path)
+                            collect_dirs(value, full_path)
+
+                collect_dirs(dir_structure, base_path)
 
         return result
 
@@ -461,15 +488,30 @@ def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
 def init_directories(config: Config) -> int:
     try:
         all_dirs = config.get_all_directories()
+        workspace_entries = config.config.get('workspace', [])
+        initialized_projects = {}
+
         for language, dirs in all_dirs.items():
             for dir_path in dirs:
                 dir_path.mkdir(parents=True, exist_ok=True)
                 print(f'created: {dir_path}')
 
             handler = LANGUAGE_HANDLER_MAP.get(language)
-            if handler:
-                base_path = config.workspace_root / language
-                handler.init_project(base_path)
+            if not handler:
+                continue
+
+            for entry in workspace_entries:
+                if entry.get('language') != language:
+                    continue
+
+                for base_dir in entry.get('dirs', {}).keys():
+                    project_key = (language, base_dir)
+                    if project_key in initialized_projects:
+                        continue
+
+                    base_path = config.workspace_root / base_dir
+                    handler.init_project(base_path)
+                    initialized_projects[project_key] = True
 
         return 0
     except Exception as e:
@@ -495,8 +537,7 @@ def create_file(config: Config, file_arg: str) -> int:
             print(f'error: unsupported file extension {full_path.suffix}. Supported: {supported}', file=sys.stderr)
             return 1
 
-        language_base = config.workspace_root / language
-        relative_path = full_path.relative_to(language_base)
+        relative_path = full_path.relative_to(config.workspace_root)
 
         template = config.get_template_for_path(language, relative_path.parent)
         if not template:
@@ -516,6 +557,9 @@ def create_file(config: Config, file_arg: str) -> int:
 
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f'error creating file: {e}', file=sys.stderr)
         return 1
     except Exception as e:
         print(f'error creating file: {e}', file=sys.stderr)
