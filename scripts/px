@@ -22,11 +22,12 @@ class Config:
     def __init__(self):
         self.config = self._load_config()
         self.workspace_root = pathlib.Path(self.config.get('workspace_root', '.'))
+        self.editor = self.config.get('editor', 'code')
 
     def _load_config(self) -> dict:
         if self.CONFIG_PATH.exists():
             return json.loads(self.CONFIG_PATH.read_text())
-        return {'workspace_root': '.'}
+        return {'workspace_root': '.', 'editor': 'code'}
 
     def get_template_for_path(self, language: str, relative_path: pathlib.Path) -> typing.Optional[dict[str, str]]:
         lang_config = self.config.get(language)
@@ -369,7 +370,6 @@ def detect_handler(path: pathlib.Path) -> typing.Optional[LanguageHandler]:
     return None
 
 
-
 def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
     input_path = pathlib.Path(path)
     full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
@@ -443,6 +443,8 @@ def create_file(config: Config, file_arg: str) -> int:
         LANGUAGE_HANDLER_MAP[language].create_files(
             full_path.with_suffix(''), template['source_template'], template.get('test_template')
         )
+
+        subprocess.run([config.editor, str(full_path)])
         return 0
 
     except ValueError as e:
@@ -450,6 +452,29 @@ def create_file(config: Config, file_arg: str) -> int:
         return 1
     except Exception as e:
         print(f'error creating file: {e}', file=sys.stderr)
+        return 1
+
+
+def open_folder(config: Config, language: typing.Optional[str] = None) -> int:
+    try:
+        if language:
+            if language not in LANGUAGE_HANDLER_MAP:
+                supported = ', '.join(LANGUAGE_HANDLER_MAP.keys())
+                print(f'error: unsupported language {language}. Supported: {supported}', file=sys.stderr)
+                return 1
+            folder_path = config.workspace_root / language
+        else:
+            folder_path = config.workspace_root
+
+        if not folder_path.exists():
+            print(f'error: folder does not exist: {folder_path}', file=sys.stderr)
+            return 1
+
+        subprocess.run([config.editor, str(folder_path)])
+        return 0
+
+    except Exception as e:
+        print(f'error opening folder: {e}', file=sys.stderr)
         return 1
 
 
@@ -475,6 +500,9 @@ def main():
     run_parser = subparsers.add_parser('run', help='Execute a file')
     run_parser.add_argument('path', type=pathlib.Path, help='Path to file to run')
 
+    open_parser = subparsers.add_parser('open', help='Open workspace or language folder in editor')
+    open_parser.add_argument('language', type=str, nargs='?', help='Language folder to open (e.g., python, rust, go)')
+
     args = parser.parse_args()
 
     config = Config()
@@ -487,6 +515,8 @@ def main():
         return_code = run_command(args.path, ExecutionMode.TEST)
     elif args.command == 'run':
         return_code = run_command(args.path, ExecutionMode.RUN)
+    elif args.command == 'open':
+        return_code = open_folder(config, args.language)
     else:
         parser.print_help()
         return_code = 0
