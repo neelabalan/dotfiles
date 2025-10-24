@@ -8,6 +8,7 @@ import string
 import subprocess
 import sys
 import typing
+import urllib.request
 
 DEFAULT_DIR = 'misc'
 
@@ -80,6 +81,28 @@ class Config:
         return result
 
 
+def download_gitignore(language: str, target_path: pathlib.Path) -> bool:
+    gitignore_urls = {
+        'python': 'https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore',
+        'rust': 'https://raw.githubusercontent.com/github/gitignore/main/Rust.gitignore',
+        'go': 'https://raw.githubusercontent.com/github/gitignore/main/Go.gitignore',
+    }
+
+    url = gitignore_urls.get(language)
+    if not url:
+        return False
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            content = response.read().decode('utf-8')
+            target_path.write_text(content)
+            print(f'created: {target_path}')
+            return True
+    except Exception as e:
+        print(f'warning: failed to download .gitignore for {language}: {e}', file=sys.stderr)
+        return False
+
+
 class LanguageHandler(abc.ABC):
     EXTENSION: str
 
@@ -133,8 +156,9 @@ class PythonHandler(LanguageHandler):
             print(f'created: {test_path}')
 
     def init_project(self, base_path: pathlib.Path) -> None:
-        # Python doesn't require special project initialization
-        pass
+        gitignore_path = base_path / '.gitignore'
+        if not gitignore_path.exists():
+            download_gitignore('python', gitignore_path)
 
     def _run_script(self, path: pathlib.Path) -> subprocess.CompletedProcess:
         if not path.is_file():
@@ -219,9 +243,8 @@ class RustHandler(LanguageHandler):
 
         if cargo_path.exists():
             print(f'cargo.toml already exists at {cargo_path}')
-            return
-
-        cargo_content = """[package]
+        else:
+            cargo_content = """[package]
 name = "rust_problems"
 version = "0.1.0"
 edition = "2021"
@@ -231,13 +254,17 @@ edition = "2021"
 [lib]
 path = "lib.rs"
 """
-        cargo_path.write_text(cargo_content)
-        print(f'created: {cargo_path}')
+            cargo_path.write_text(cargo_content)
+            print(f'created: {cargo_path}')
 
         lib_path = base_path / 'lib.rs'
         if not lib_path.exists():
             lib_path.write_text('// Library root for all Rust problem modules\n')
             print(f'created: {lib_path}')
+
+        gitignore_path = base_path / '.gitignore'
+        if not gitignore_path.exists():
+            download_gitignore('rust', gitignore_path)
 
     def _update_rust_lib(self, rust_file: pathlib.Path) -> None:
         # Find the base rust directory by looking for Cargo.toml
@@ -355,14 +382,17 @@ class GoHandler(LanguageHandler):
 
         if go_mod_path.exists():
             print(f'go.mod already exists at {go_mod_path}')
-            return
-
-        go_mod_content = """module problems
+        else:
+            go_mod_content = """module problems
 
 go 1.23
 """
-        go_mod_path.write_text(go_mod_content)
-        print(f'created: {go_mod_path}')
+            go_mod_path.write_text(go_mod_content)
+            print(f'created: {go_mod_path}')
+
+        gitignore_path = base_path / '.gitignore'
+        if not gitignore_path.exists():
+            download_gitignore('go', gitignore_path)
 
 
 LANGUAGE_HANDLER_MAP: dict[str, LanguageHandler] = {'python': PythonHandler(), 'rust': RustHandler(), 'go': GoHandler()}
