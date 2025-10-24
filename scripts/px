@@ -4,6 +4,7 @@ import abc
 import argparse
 import json
 import pathlib
+import string
 import subprocess
 import sys
 import typing
@@ -337,12 +338,16 @@ class GoHandler(LanguageHandler):
     def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
         source_path = path.with_suffix(self.get_extension())
         source_path.parent.mkdir(parents=True, exist_ok=True)
-        source_path.write_text(source_template)
+
+        package_name = path.stem.replace('-', '_').replace(' ', '_')
+        source_content = string.Template(source_template).safe_substitute(package_name=package_name)
+        source_path.write_text(source_content)
         print(f'created: {source_path}')
 
         if test_template:
             test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
-            test_path.write_text(test_template)
+            test_content = string.Template(test_template).safe_substitute(package_name=package_name)
+            test_path.write_text(test_content)
             print(f'created: {test_path}')
 
     def init_project(self, base_path: pathlib.Path) -> None:
