@@ -1,0 +1,711 @@
+#!/usr/bin/env python3
+
+import abc
+import argparse
+import json
+import pathlib
+import shutil
+import string
+import subprocess
+import sys
+import textwrap
+import typing
+import urllib.request
+
+DEFAULT_DIR = 'misc'
+
+
+class ExecutionMode:
+    TEST = 'test'
+    RUN = 'run'
+
+
+class Config:
+    CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.px.json'
+
+    def __init__(self):
+        self.config = self._load_config()
+        self.workspace_root = pathlib.Path(self.config.get('workspace_root', '.'))
+        self.editor = self.config.get('editor', 'code')
+
+    def _load_config(self) -> dict:
+        if self.CONFIG_PATH.exists():
+            return json.loads(self.CONFIG_PATH.read_text())
+
+        return {
+            'workspace_root': str(pathlib.Path.home() / 'experiments'),
+            'editor': 'code',
+            'workspace': [
+                {'language': 'python', 'dirs': {'python': {'misc': {'default': True}}}},
+                {'language': 'rust', 'dirs': {'rust': {'misc': {'default': True}}}},
+                {'language': 'go', 'dirs': {'go': {'misc': {'default': True}}}},
+            ],
+        }
+
+    def _make_template_dict(self, current: dict) -> dict[str, str]:
+        return {
+            'source_template': current.get('source_template', ''),
+            'test_template': current.get('test_template'),
+        }
+
+    def validate_config(self, valid_languages: set[str]) -> None:
+        workspace_entries = self.config.get('workspace', [])
+
+        default_counts = {}
+
+        for idx, entry in enumerate(workspace_entries):
+            language = entry.get('language')
+
+            if not language:
+                raise ValueError(f"workspace entry {idx} missing 'language' field")
+
+            if language not in valid_languages:
+                raise ValueError(
+                    f"unknown language '{language}' in workspace entry {idx}. "
+                    f'valid languages: {", ".join(sorted(valid_languages))}'
+                )
+
+            dirs_config = entry.get('dirs', {})
+            if not dirs_config:
+                raise ValueError(f"workspace entry {idx} ({language}) has no 'dirs' defined")
+
+            self._check_defaults_in_dirs(dirs_config, language, default_counts)
+
+        for language, count in default_counts.items():
+            if count > 1:
+                raise ValueError(
+                    f"language '{language}' has {count} directories marked as default. "
+                    f'only one default directory allowed per language'
+                )
+
+    def _check_defaults_in_dirs(
+        self, dirs_config: dict, language: str, default_counts: dict, path_parts: list[str] = None
+    ) -> None:
+        if path_parts is None:
+            path_parts = []
+
+        for key, value in dirs_config.items():
+            if not isinstance(value, dict):
+                continue
+
+            current_path = path_parts + [key]
+
+            if value.get('default') is True:
+                default_counts[language] = default_counts.get(language, 0) + 1
+
+            nested_dirs = {k: v for k, v in value.items() if k not in ('default', 'source_template', 'test_template')}
+            if nested_dirs:
+                self._check_defaults_in_dirs(nested_dirs, language, default_counts, current_path)
+
+    def get_template_for_path(self, language: str, relative_path: pathlib.Path) -> typing.Optional[dict[str, str]]:
+        for part in relative_path.parts:
+            if part and part[0].isdigit():
+                raise ValueError(f"directory names cannot start with digits: '{part}'")
+
+        workspace_entries = self.config.get('workspace', [])
+
+        for entry in workspace_entries:
+            if entry.get('language') != language:
+                continue
+
+            dirs_config = entry.get('dirs', {})
+
+            for base_dir, dir_structure in dirs_config.items():
+                if not relative_path.parts or relative_path.parts[0] != base_dir:
+                    continue
+
+                remaining_parts = list(relative_path.parts[1:])
+                current = dir_structure
+
+                for part in remaining_parts:
+                    if part not in current:
+                        break
+                    current = current[part]
+                else:
+                    return self._make_template_dict(current)
+
+                current = dir_structure
+                for part in remaining_parts:
+                    if part in current:
+                        current = current[part]
+                    elif 'source_template' in current or 'default' in current:
+                        return self._make_template_dict(current)
+                    else:
+                        break
+
+                if 'source_template' in current or 'default' in current:
+                    return self._make_template_dict(current)
+
+        return None
+
+    def get_all_directories(self) -> dict[str, list[pathlib.Path]]:
+        result = {}
+        workspace_entries = self.config.get('workspace', [])
+
+        for entry in workspace_entries:
+            language = entry.get('language')
+            if not language:
+                continue
+
+            if language not in result:
+                result[language] = []
+
+            dirs_config = entry.get('dirs', {})
+
+            for base_dir, dir_structure in dirs_config.items():
+                base_path = self.workspace_root / base_dir
+                result[language].append(base_path)
+
+                def collect_dirs(dir_config: dict, prefix: pathlib.Path):
+                    for key, value in dir_config.items():
+                        if key in ('default', 'source_template', 'test_template'):
+                            continue
+                        if isinstance(value, dict):
+                            full_path = prefix / key
+                            result[language].append(full_path)
+                            collect_dirs(value, full_path)
+
+                collect_dirs(dir_structure, base_path)
+
+        return result
+
+
+def download_gitignore(language: str, target_path: pathlib.Path) -> bool:
+    gitignore_urls = {
+        'python': 'https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore',
+        'rust': 'https://raw.githubusercontent.com/github/gitignore/main/Rust.gitignore',
+        'go': 'https://raw.githubusercontent.com/github/gitignore/main/Go.gitignore',
+    }
+
+    url = gitignore_urls.get(language)
+    if not url:
+        return False
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            content = response.read().decode('utf-8')
+            target_path.write_text(content)
+            print(f'created: {target_path}')
+            return True
+    except Exception as e:
+        print(f'warning: failed to download .gitignore for {language}: {e}', file=sys.stderr)
+        return False
+
+
+class LanguageHandler(abc.ABC):
+    EXTENSION: str
+
+    @abc.abstractmethod
+    def detect(self, path: pathlib.Path) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        pass
+
+    @abc.abstractmethod
+    def get_extension(self) -> str:
+        pass
+
+    @abc.abstractmethod
+    def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
+        pass
+
+    @abc.abstractmethod
+    def init_project(self, base_path: pathlib.Path) -> None:
+        pass
+
+
+class PythonHandler(LanguageHandler):
+    EXTENSION = '.py'
+
+    def detect(self, path: pathlib.Path) -> bool:
+        if path.is_file():
+            return path.suffix == '.py'
+        return (path / 'pyproject.toml').exists() or any(path.glob('*.py'))
+
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        if mode == ExecutionMode.TEST:
+            return subprocess.run(['uv', 'run', 'pytest', '-v', str(path)], capture_output=False)
+        else:
+            return self._run_script(path)
+
+    def get_extension(self) -> str:
+        return '.py'
+
+    def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
+        source_path = path.with_suffix(self.get_extension())
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text(source_template)
+        print(f'created: {source_path}')
+
+        if test_template:
+            test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
+            test_path.write_text(test_template)
+            print(f'created: {test_path}')
+
+    def init_project(self, base_path: pathlib.Path) -> None:
+        pyproject_path = base_path / 'pyproject.toml'
+        if not pyproject_path.exists():
+            subprocess.run(['uv', 'init', '--lib', '--no-readme', '--python', '3.11'], cwd=base_path, capture_output=True)
+            print(f'initialized uv project: {base_path}')
+
+            pyproject_content = pyproject_path.read_text()
+            pytest_config = textwrap.dedent("""
+                [tool.pytest.ini_options]
+                python_files = "*.py"
+            """).rstrip()
+            pyproject_path.write_text(pyproject_content + pytest_config)
+
+            src_dir = base_path / 'src'
+            if src_dir.exists():
+                shutil.rmtree(src_dir)
+
+        gitignore_path = base_path / '.gitignore'
+        if not gitignore_path.exists():
+            download_gitignore('python', gitignore_path)
+
+        ruff_path = base_path / '.ruff.toml'
+        if not ruff_path.exists():
+            ruff_content = textwrap.dedent("""
+                fix = true
+                line-length = 121
+
+                [lint]
+                select = ["F", "W", "I001"]
+                fixable = ["I001", "F401"]
+
+                [format]
+                # Prefer single quotes over double quotes.
+                quote-style = "single"
+
+                [lint.isort]
+                force-single-line = true
+            """).strip()
+            ruff_path.write_text(ruff_content)
+            print(f'created: {ruff_path}')
+
+    def _run_script(self, path: pathlib.Path) -> subprocess.CompletedProcess:
+        if not path.is_file():
+            raise ValueError(f'{path} is not a file')
+
+        return subprocess.run(['uv', 'run', 'python', str(path)], capture_output=False)
+
+
+class RustHandler(LanguageHandler):
+    EXTENSION = '.rs'
+
+    def detect(self, path: pathlib.Path) -> bool:
+        if path.is_file():
+            return path.suffix == '.rs'
+        return (path / 'Cargo.toml').exists()
+
+    def get_extension(self) -> str:
+        return '.rs'
+
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        if path.is_file():
+            return self._run_single_file(path, mode)
+        else:
+            return self._run_cargo_project(path, mode)
+
+    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        cargo_root = self._find_cargo_root(path)
+
+        if not cargo_root:
+            raise ValueError(f'no Cargo.toml found for {path}. please create a Cargo project in the rust/ directory.')
+
+        if mode == ExecutionMode.TEST:
+            module_path = self._get_module_path(path, cargo_root)
+            return subprocess.run(
+                ['cargo', 'test', '--lib', module_path, '--', '--nocapture'], cwd=cargo_root, capture_output=False
+            )
+        else:
+            raise NotImplementedError('run mode not supported for single Rust files')
+
+    def _run_cargo_project(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        if mode == ExecutionMode.TEST:
+            return subprocess.run(['cargo', 'test', '--', '--nocapture'], cwd=path, capture_output=False)
+        else:
+            return subprocess.run(['cargo', 'run'], cwd=path, capture_output=False)
+
+    def _find_cargo_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
+        current = file_path.parent
+        while current != current.parent:
+            if (current / 'Cargo.toml').exists():
+                return current
+            current = current.parent
+        return None
+
+    def _get_module_path(self, file_path: pathlib.Path, cargo_root: pathlib.Path) -> str:
+        relative = file_path.relative_to(cargo_root)
+        parts = list(relative.parts)
+
+        if parts[0] == 'src':
+            parts = parts[1:]
+
+        if parts[-1].endswith('.rs'):
+            parts[-1] = parts[-1][:-3]
+
+        return '::'.join(parts)
+
+    def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
+        source_path = path.with_suffix(self.get_extension())
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text(source_template)
+        print(f'created: {source_path}')
+
+        self._update_rust_lib(source_path)
+
+        if test_template:
+            test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
+            test_path.write_text(test_template)
+            print(f'created: {test_path}')
+
+    def init_project(self, base_path: pathlib.Path) -> None:
+        cargo_path = base_path / 'Cargo.toml'
+
+        if cargo_path.exists():
+            print(f'cargo.toml already exists at {cargo_path}')
+        else:
+            lib_name = base_path.name.replace('-', '_')
+            subprocess.run(['cargo', 'init', '--lib', '--name', lib_name], cwd=base_path, capture_output=True)
+            print(f'initialized cargo project: {base_path}')
+
+            cargo_content = cargo_path.read_text()
+            lib_config = '\n[lib]\npath = "lib.rs"\n'
+            cargo_path.write_text(cargo_content.rstrip() + lib_config)
+
+            src_dir = base_path / 'src'
+            if src_dir.exists():
+                shutil.rmtree(src_dir)
+
+            lib_path = base_path / 'lib.rs'
+            if not lib_path.exists():
+                lib_path.write_text('')
+                print(f'created: {lib_path}')
+
+        gitignore_path = base_path / '.gitignore'
+        if not gitignore_path.exists():
+            download_gitignore('rust', gitignore_path)
+
+    def _update_rust_lib(self, rust_file: pathlib.Path) -> None:
+        cargo_root = self._find_cargo_root(rust_file)
+        if not cargo_root:
+            return
+
+        lib_path = cargo_root / 'lib.rs'
+        if not lib_path.exists():
+            return
+
+        relative_path = rust_file.relative_to(cargo_root)
+        dir_parts = list(relative_path.parts[:-1])
+        module_name = rust_file.stem
+
+        if not dir_parts:
+            self._add_module_declaration(lib_path, module_name)
+            return
+
+        self._add_module_declaration(lib_path, dir_parts[0])
+
+        current_path = cargo_root
+        for i, part in enumerate(dir_parts):
+            current_path = current_path / part
+            current_path.mkdir(exist_ok=True)
+
+            mod_file = current_path / 'mod.rs'
+
+            if i < len(dir_parts) - 1:
+                next_part = dir_parts[i + 1]
+                self._add_module_declaration(mod_file, next_part)
+            else:
+                self._add_module_declaration(mod_file, module_name)
+
+    def _add_module_declaration(self, mod_file: pathlib.Path, module_name: str) -> None:
+        declaration = f'pub mod {module_name};\n'
+
+        if mod_file.exists():
+            content = mod_file.read_text()
+            if f'mod {module_name};' not in content:
+                content += declaration
+                mod_file.write_text(content)
+        else:
+            mod_file.write_text(declaration)
+
+
+class GoHandler(LanguageHandler):
+    EXTENSION = '.go'
+
+    def detect(self, path: pathlib.Path) -> bool:
+        if path.is_file():
+            return path.suffix == '.go'
+        return (path / 'go.mod').exists()
+
+    def get_extension(self) -> str:
+        return '.go'
+
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        if path.is_file():
+            return self._run_single_file(path, mode)
+        else:
+            return self._run_go_module(path, mode)
+
+    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        go_mod_root = self._find_go_mod_root(path)
+
+        if mode == ExecutionMode.TEST:
+            if go_mod_root:
+                package_path = self._get_package_path(path, go_mod_root)
+                return subprocess.run(['go', 'test', '-v', package_path], cwd=go_mod_root, capture_output=False)
+            else:
+                test_file = path.parent / f'{path.stem}_test.go'
+                if test_file.exists():
+                    return subprocess.run(['go', 'test', '-v', str(path), str(test_file)], capture_output=False)
+                else:
+                    return subprocess.run(['go', 'test', '-v', str(path)], capture_output=False)
+        else:
+            return subprocess.run(['go', 'run', str(path)], capture_output=False)
+
+    def _run_go_module(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+        if mode == ExecutionMode.TEST:
+            return subprocess.run(['go', 'test', '-v', './...'], cwd=path, capture_output=False)
+        else:
+            return subprocess.run(['go', 'run', '.'], cwd=path, capture_output=False)
+
+    def _find_go_mod_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
+        current = file_path.parent
+        while current != current.parent:
+            if (current / 'go.mod').exists():
+                return current
+            current = current.parent
+        return None
+
+    def _get_package_path(self, file_path: pathlib.Path, go_mod_root: pathlib.Path) -> str:
+        relative = file_path.parent.relative_to(go_mod_root)
+        return f'./{relative}'
+
+    def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
+        source_path = path.with_suffix(self.get_extension())
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+
+        package_name = source_path.parent.name
+        source_content = string.Template(source_template).safe_substitute(package_name=package_name)
+        source_path.write_text(source_content)
+        print(f'created: {source_path}')
+
+        if test_template:
+            test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
+            test_content = string.Template(test_template).safe_substitute(package_name=package_name)
+            test_path.write_text(test_content)
+            print(f'created: {test_path}')
+
+    def init_project(self, base_path: pathlib.Path) -> None:
+        go_mod_path = base_path / 'go.mod'
+
+        if go_mod_path.exists():
+            print(f'go.mod already exists at {go_mod_path}')
+        else:
+            module_name = base_path.name
+            subprocess.run(['go', 'mod', 'init', module_name], cwd=base_path, capture_output=True)
+            print(f'initialized go module: {base_path}')
+
+        gitignore_path = base_path / '.gitignore'
+        if not gitignore_path.exists():
+            download_gitignore('go', gitignore_path)
+
+
+LANGUAGE_HANDLER_MAP: dict[str, LanguageHandler] = {'python': PythonHandler(), 'rust': RustHandler(), 'go': GoHandler()}
+
+
+def detect_handler(path: pathlib.Path) -> typing.Optional[LanguageHandler]:
+    for handler in LANGUAGE_HANDLER_MAP.values():
+        if handler.detect(path):
+            return handler
+    return None
+
+
+def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
+    input_path = pathlib.Path(path)
+    full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
+
+    if not full_path.exists():
+        print(f'error: {full_path} does not exist', file=sys.stderr)
+        return 1
+
+    handler = detect_handler(full_path)
+    if not handler:
+        print(f'error: could not detect language for {full_path}', file=sys.stderr)
+        return 1
+
+    try:
+        result = handler.execute(full_path, mode)
+        return result.returncode
+    except Exception as e:
+        print(f'error executing: {e}', file=sys.stderr)
+        return 1
+
+
+def init_directories(config: Config) -> int:
+    try:
+        if not config.CONFIG_PATH.exists():
+            config.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            config.CONFIG_PATH.write_text(json.dumps(config.config, indent=2))
+            print(f'created config: {config.CONFIG_PATH}')
+
+        all_dirs = config.get_all_directories()
+        workspace_entries = config.config.get('workspace', [])
+        initialized_projects = {}
+
+        for language, dirs in all_dirs.items():
+            for dir_path in dirs:
+                dir_path.mkdir(parents=True, exist_ok=True)
+                print(f'created: {dir_path}')
+
+            handler = LANGUAGE_HANDLER_MAP.get(language)
+            if not handler:
+                continue
+
+            for entry in workspace_entries:
+                if entry.get('language') != language:
+                    continue
+
+                for base_dir in entry.get('dirs', {}).keys():
+                    project_key = (language, base_dir)
+                    if project_key in initialized_projects:
+                        continue
+
+                    base_path = config.workspace_root / base_dir
+                    handler.init_project(base_path)
+                    initialized_projects[project_key] = True
+
+        return 0
+    except Exception as e:
+        print(f'error initializing directories: {e}', file=sys.stderr)
+        return 1
+
+
+def create_file(config: Config, file_arg: str) -> int:
+    try:
+        input_path = pathlib.Path(file_arg)
+        full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
+
+        if full_path.stem and full_path.stem[0].isdigit():
+            print(f"error: filename cannot start with a digit: '{full_path.name}'", file=sys.stderr)
+            return 1
+
+        for lang, handler in LANGUAGE_HANDLER_MAP.items():
+            if full_path.suffix == handler.EXTENSION:
+                language = lang
+                break
+        else:
+            supported = ', '.join(h.EXTENSION for h in LANGUAGE_HANDLER_MAP.values())
+            print(f'error: unsupported file extension {full_path.suffix}. Supported: {supported}', file=sys.stderr)
+            return 1
+
+        relative_path = full_path.relative_to(config.workspace_root)
+
+        template = config.get_template_for_path(language, relative_path.parent)
+        if template is None:
+            print(f'error: no configuration found for path {relative_path.parent}', file=sys.stderr)
+            return 1
+
+        source_template = template.get('source_template', '')
+        test_template = template.get('test_template')
+
+        LANGUAGE_HANDLER_MAP[language].create_files(full_path.with_suffix(''), source_template, test_template)
+
+        subprocess.run([config.editor, str(full_path)])
+        return 0
+
+    except ValueError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f'error creating file: {e}', file=sys.stderr)
+        return 1
+
+
+def open_folder(config: Config, language: typing.Optional[str] = None) -> int:
+    try:
+        if language:
+            if language not in LANGUAGE_HANDLER_MAP:
+                supported = ', '.join(LANGUAGE_HANDLER_MAP.keys())
+                print(f'error: unsupported language {language}. Supported: {supported}', file=sys.stderr)
+                return 1
+            folder_path = config.workspace_root / language
+        else:
+            folder_path = config.workspace_root
+
+        if not folder_path.exists():
+            print(f'error: folder does not exist: {folder_path}', file=sys.stderr)
+            return 1
+
+        subprocess.run([config.editor, str(folder_path)])
+        return 0
+
+    except Exception as e:
+        print(f'error opening folder: {e}', file=sys.stderr)
+        return 1
+
+
+def main() -> typing.Optional[int]:
+    parser = argparse.ArgumentParser(
+        description='Unified test runner for multiple languages',
+        epilog='Examples:\n  %(prog)s test python/file.py\n  %(prog)s run python/file.py\n  %(prog)s init\n  %(prog)s create python/leetcode/001',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Commands')
+
+    subparsers.add_parser('init', help='Initialize directory structure from config')
+    subparsers.add_parser('validate', help='Validate configuration file')
+
+    create_parser = subparsers.add_parser('create', help='Create a new file from template')
+    create_parser.add_argument(
+        'path', type=str, help='File path to create (e.g., rust/leetcode/p01.rs, leetcode/p01.rs, solution.py)'
+    )
+
+    test_parser = subparsers.add_parser('test', help='Run tests for a file')
+    test_parser.add_argument('path', type=pathlib.Path, help='Path to file to test')
+
+    run_parser = subparsers.add_parser('run', help='Execute a file')
+    run_parser.add_argument('path', type=pathlib.Path, help='Path to file to run')
+
+    open_parser = subparsers.add_parser('open', help='Open workspace or language folder in editor')
+    open_parser.add_argument('language', type=str, nargs='?', help='Language folder to open (e.g., python, rust, go)')
+
+    args = parser.parse_args()
+
+    config = Config()
+
+    if args.command == 'init':
+        try:
+            config.validate_config(set(LANGUAGE_HANDLER_MAP.keys()))
+        except ValueError as e:
+            print(f'config validation failed: {e}', file=sys.stderr)
+            return 1
+        return_code = init_directories(config)
+    elif args.command == 'validate':
+        try:
+            config.validate_config(set(LANGUAGE_HANDLER_MAP.keys()))
+            return_code = 0
+        except ValueError as e:
+            print(f'config validation failed: {e}', file=sys.stderr)
+            return_code = 1
+    elif args.command == 'create':
+        return_code = create_file(config, args.path)
+    elif args.command == 'test':
+        return_code = run_command(args.path, ExecutionMode.TEST)
+    elif args.command == 'run':
+        return_code = run_command(args.path, ExecutionMode.RUN)
+    elif args.command == 'open':
+        return_code = open_folder(config, args.language)
+    else:
+        parser.print_help()
+        return_code = 0
+
+    sys.exit(return_code)
+
+
+if __name__ == '__main__':
+    main()
