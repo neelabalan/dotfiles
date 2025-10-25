@@ -4,6 +4,7 @@ import abc
 import argparse
 import json
 import pathlib
+import shutil
 import string
 import subprocess
 import sys
@@ -157,7 +158,9 @@ class Config:
 
                 def collect_dirs(dir_config: dict, prefix: pathlib.Path):
                     for key, value in dir_config.items():
-                        if isinstance(value, dict) and 'source_template' not in value:
+                        if key in ('default', 'source_template', 'test_template'):
+                            continue
+                        if isinstance(value, dict):
                             full_path = prefix / key
                             result[language].append(full_path)
                             collect_dirs(value, full_path)
@@ -253,6 +256,10 @@ class PythonHandler(LanguageHandler):
                 python_files = "*.py"
             """).rstrip()
             pyproject_path.write_text(pyproject_content + pytest_config)
+
+            src_dir = base_path / 'src'
+            if src_dir.exists():
+                shutil.rmtree(src_dir)
 
         gitignore_path = base_path / '.gitignore'
         if not gitignore_path.exists():
@@ -369,6 +376,15 @@ class RustHandler(LanguageHandler):
             lib_config = '\n[lib]\npath = "lib.rs"\n'
             cargo_path.write_text(cargo_content.rstrip() + lib_config)
 
+            src_dir = base_path / 'src'
+            if src_dir.exists():
+                shutil.rmtree(src_dir)
+
+            lib_path = base_path / 'lib.rs'
+            if not lib_path.exists():
+                lib_path.write_text('')
+                print(f'created: {lib_path}')
+
         gitignore_path = base_path / '.gitignore'
         if not gitignore_path.exists():
             download_gitignore('rust', gitignore_path)
@@ -472,7 +488,7 @@ class GoHandler(LanguageHandler):
         source_path = path.with_suffix(self.get_extension())
         source_path.parent.mkdir(parents=True, exist_ok=True)
 
-        package_name = path.stem.replace('-', '_').replace(' ', '_')
+        package_name = source_path.parent.name
         source_content = string.Template(source_template).safe_substitute(package_name=package_name)
         source_path.write_text(source_content)
         print(f'created: {source_path}')
