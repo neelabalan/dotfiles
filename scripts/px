@@ -242,18 +242,21 @@ class PythonHandler(LanguageHandler):
             print(f'created: {test_path}')
 
     def init_project(self, base_path: pathlib.Path) -> None:
+        pyproject_path = base_path / 'pyproject.toml'
+        if not pyproject_path.exists():
+            subprocess.run(['uv', 'init', '--lib', '--no-readme', '--python', '3.11'], cwd=base_path, capture_output=True)
+            print(f'initialized uv project: {base_path}')
+
+            pyproject_content = pyproject_path.read_text()
+            pytest_config = textwrap.dedent("""
+                [tool.pytest.ini_options]
+                python_files = "*.py"
+            """).rstrip()
+            pyproject_path.write_text(pyproject_content + pytest_config)
+
         gitignore_path = base_path / '.gitignore'
         if not gitignore_path.exists():
             download_gitignore('python', gitignore_path)
-
-        pyproject_path = base_path / 'pyproject.toml'
-        if not pyproject_path.exists():
-            pyproject_content = textwrap.dedent("""
-                [tool.pytest.ini_options]
-                python_files = "*.py"
-            """).strip()
-            pyproject_path.write_text(pyproject_content)
-            print(f'created: {pyproject_path}')
 
         ruff_path = base_path / '.ruff.toml'
         if not ruff_path.exists():
@@ -358,24 +361,13 @@ class RustHandler(LanguageHandler):
         if cargo_path.exists():
             print(f'cargo.toml already exists at {cargo_path}')
         else:
-            cargo_content = textwrap.dedent("""
-                [package]
-                name = "rust_problems"
-                version = "0.1.0"
-                edition = "2021"
+            lib_name = base_path.name.replace('-', '_')
+            subprocess.run(['cargo', 'init', '--lib', '--name', lib_name], cwd=base_path, capture_output=True)
+            print(f'initialized cargo project: {base_path}')
 
-                [dependencies]
-
-                [lib]
-                path = "lib.rs"
-            """).strip()
-            cargo_path.write_text(cargo_content)
-            print(f'created: {cargo_path}')
-
-        lib_path = base_path / 'lib.rs'
-        if not lib_path.exists():
-            lib_path.write_text('// Library root for all Rust problem modules\n')
-            print(f'created: {lib_path}')
+            cargo_content = cargo_path.read_text()
+            lib_config = '\n[lib]\npath = "lib.rs"\n'
+            cargo_path.write_text(cargo_content.rstrip() + lib_config)
 
         gitignore_path = base_path / '.gitignore'
         if not gitignore_path.exists():
@@ -497,13 +489,9 @@ class GoHandler(LanguageHandler):
         if go_mod_path.exists():
             print(f'go.mod already exists at {go_mod_path}')
         else:
-            go_mod_content = textwrap.dedent("""
-                module problems
-
-                go 1.23
-            """).strip()
-            go_mod_path.write_text(go_mod_content)
-            print(f'created: {go_mod_path}')
+            module_name = base_path.name
+            subprocess.run(['go', 'mod', 'init', module_name], cwd=base_path, capture_output=True)
+            print(f'initialized go module: {base_path}')
 
         gitignore_path = base_path / '.gitignore'
         if not gitignore_path.exists():
