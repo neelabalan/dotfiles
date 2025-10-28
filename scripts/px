@@ -204,10 +204,6 @@ class LanguageHandler(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_extension(self) -> str:
-        pass
-
-    @abc.abstractmethod
     def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
         pass
 
@@ -230,17 +226,14 @@ class PythonHandler(LanguageHandler):
         else:
             return self._run_script(path)
 
-    def get_extension(self) -> str:
-        return '.py'
-
     def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
-        source_path = path.with_suffix(self.get_extension())
+        source_path = path.with_suffix(self.EXTENSION)
         source_path.parent.mkdir(parents=True, exist_ok=True)
         source_path.write_text(source_template)
         print(f'created: {source_path}')
 
         if test_template:
-            test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
+            test_path = path.parent / f'{path.stem}_test{self.EXTENSION}'
             test_path.write_text(test_template)
             print(f'created: {test_path}')
 
@@ -300,9 +293,6 @@ class RustHandler(LanguageHandler):
             return path.suffix == '.rs'
         return (path / 'Cargo.toml').exists()
 
-    def get_extension(self) -> str:
-        return '.rs'
-
     def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
         if path.is_file():
             return self._run_single_file(path, mode)
@@ -350,7 +340,7 @@ class RustHandler(LanguageHandler):
         return '::'.join(parts)
 
     def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
-        source_path = path.with_suffix(self.get_extension())
+        source_path = path.with_suffix(self.EXTENSION)
         source_path.parent.mkdir(parents=True, exist_ok=True)
         source_path.write_text(source_template)
         print(f'created: {source_path}')
@@ -358,7 +348,7 @@ class RustHandler(LanguageHandler):
         self._update_rust_lib(source_path)
 
         if test_template:
-            test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
+            test_path = path.parent / f'{path.stem}_test{self.EXTENSION}'
             test_path.write_text(test_template)
             print(f'created: {test_path}')
 
@@ -441,9 +431,6 @@ class GoHandler(LanguageHandler):
             return path.suffix == '.go'
         return (path / 'go.mod').exists()
 
-    def get_extension(self) -> str:
-        return '.go'
-
     def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
         if path.is_file():
             return self._run_single_file(path, mode)
@@ -485,7 +472,7 @@ class GoHandler(LanguageHandler):
         return f'./{relative}'
 
     def create_files(self, path: pathlib.Path, source_template: str, test_template: str | None) -> None:
-        source_path = path.with_suffix(self.get_extension())
+        source_path = path.with_suffix(self.EXTENSION)
         source_path.parent.mkdir(parents=True, exist_ok=True)
 
         package_name = source_path.parent.name
@@ -494,7 +481,7 @@ class GoHandler(LanguageHandler):
         print(f'created: {source_path}')
 
         if test_template:
-            test_path = path.parent / f'{path.stem}_test{self.get_extension()}'
+            test_path = path.parent / f'{path.stem}_test{self.EXTENSION}'
             test_content = string.Template(test_template).safe_substitute(package_name=package_name)
             test_path.write_text(test_content)
             print(f'created: {test_path}')
