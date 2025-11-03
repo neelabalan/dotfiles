@@ -13,6 +13,9 @@ import typing
 import urllib.request
 
 DEFAULT_DIR = 'misc'
+SOURCE_TEMPLATE = 'source_template'
+TEST_TEMPLATE = 'test_template'
+DEFAULT = 'default'
 
 
 class ExecutionMode:
@@ -44,14 +47,14 @@ class Config:
 
     def _make_template_dict(self, current: dict) -> dict[str, str]:
         return {
-            'source_template': current.get('source_template', ''),
-            'test_template': current.get('test_template'),
+            SOURCE_TEMPLATE: current.get(SOURCE_TEMPLATE, ''),
+            TEST_TEMPLATE: current.get(TEST_TEMPLATE),
         }
 
     def validate_config(self, valid_languages: set[str]) -> None:
         workspace_entries = self.config.get('workspace', [])
 
-        default_counts = {}
+        default_counts: dict[str, int] = {}
 
         for idx, entry in enumerate(workspace_entries):
             language = entry.get('language')
@@ -79,7 +82,7 @@ class Config:
                 )
 
     def _check_defaults_in_dirs(
-        self, dirs_config: dict, language: str, default_counts: dict, path_parts: list[str] = None
+        self, dirs_config: dict, language: str, default_counts: dict, path_parts: list[str] | None = None
     ) -> None:
         if path_parts is None:
             path_parts = []
@@ -90,10 +93,10 @@ class Config:
 
             current_path = path_parts + [key]
 
-            if value.get('default') is True:
+            if value.get(DEFAULT) is True:
                 default_counts[language] = default_counts.get(language, 0) + 1
 
-            nested_dirs = {k: v for k, v in value.items() if k not in ('default', 'source_template', 'test_template')}
+            nested_dirs = {k: v for k, v in value.items() if k not in (DEFAULT, SOURCE_TEMPLATE, TEST_TEMPLATE)}
             if nested_dirs:
                 self._check_defaults_in_dirs(nested_dirs, language, default_counts, current_path)
 
@@ -118,28 +121,20 @@ class Config:
                 current = dir_structure
 
                 for part in remaining_parts:
-                    if part not in current:
-                        break
-                    current = current[part]
-                else:
-                    return self._make_template_dict(current)
-
-                current = dir_structure
-                for part in remaining_parts:
                     if part in current:
                         current = current[part]
-                    elif 'source_template' in current or 'default' in current:
+                    elif SOURCE_TEMPLATE in current or DEFAULT in current:
                         return self._make_template_dict(current)
                     else:
                         break
 
-                if 'source_template' in current or 'default' in current:
+                if SOURCE_TEMPLATE in current or DEFAULT in current:
                     return self._make_template_dict(current)
 
         return None
 
     def get_all_directories(self) -> dict[str, list[pathlib.Path]]:
-        result = {}
+        result: dict[str, list[pathlib.Path]] = {}
         workspace_entries = self.config.get('workspace', [])
 
         for entry in workspace_entries:
@@ -155,17 +150,17 @@ class Config:
             for base_dir, dir_structure in dirs_config.items():
                 base_path = self.workspace_root / base_dir
                 result[language].append(base_path)
+                self._collect_dirs(dir_structure, base_path, result, language)
+        return result
 
-                def collect_dirs(dir_config: dict, prefix: pathlib.Path):
-                    for key, value in dir_config.items():
-                        if key in ('default', 'source_template', 'test_template'):
-                            continue
-                        if isinstance(value, dict):
-                            full_path = prefix / key
-                            result[language].append(full_path)
-                            collect_dirs(value, full_path)
-
-                collect_dirs(dir_structure, base_path)
+    def _collect_dirs(self, dir_config: dict, prefix: pathlib.Path, result: dict, language: str):
+        for key, value in dir_config.items():
+            if key in (DEFAULT, SOURCE_TEMPLATE, TEST_TEMPLATE):
+                continue
+            if isinstance(value, dict):
+                full_path = prefix / key
+                result[language].append(full_path)
+                self._collect_dirs(value, full_path, result, language)
 
         return result
 
@@ -240,7 +235,11 @@ class PythonHandler(LanguageHandler):
     def init_project(self, base_path: pathlib.Path) -> None:
         pyproject_path = base_path / 'pyproject.toml'
         if not pyproject_path.exists():
-            subprocess.run(['uv', 'init', '--lib', '--no-readme', '--python', '3.11'], cwd=base_path, capture_output=True)
+            result = subprocess.run(
+                ['uv', 'init', '--lib', '--no-readme', '--python', '3.11'], cwd=base_path, capture_output=True
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f'failed to initialize uv project: {result.stderr.decode()}')
             print(f'initialized uv project: {base_path}')
 
             pyproject_content = pyproject_path.read_text()
@@ -321,10 +320,13 @@ class RustHandler(LanguageHandler):
 
     def _find_cargo_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
         current = file_path.parent
-        while current != current.parent:
+        depth = 0
+        max_depth = 50
+        while current != current.parent and depth < max_depth:
             if (current / 'Cargo.toml').exists():
                 return current
             current = current.parent
+            depth += 1
         return None
 
     def _get_module_path(self, file_path: pathlib.Path, cargo_root: pathlib.Path) -> str:
@@ -359,7 +361,9 @@ class RustHandler(LanguageHandler):
             print(f'cargo.toml already exists at {cargo_path}')
         else:
             lib_name = base_path.name.replace('-', '_')
-            subprocess.run(['cargo', 'init', '--lib', '--name', lib_name], cwd=base_path, capture_output=True)
+            result = subprocess.run(['cargo', 'init', '--lib', '--name', lib_name], cwd=base_path, capture_output=True)
+            if result.returncode != 0:
+                raise RuntimeError(f'failed to initialize cargo project: {result.stderr.decode()}')
             print(f'initialized cargo project: {base_path}')
 
             cargo_content = cargo_path.read_text()
@@ -461,10 +465,13 @@ class GoHandler(LanguageHandler):
 
     def _find_go_mod_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
         current = file_path.parent
-        while current != current.parent:
+        depth = 0
+        max_depth = 50
+        while current != current.parent and depth < max_depth:
             if (current / 'go.mod').exists():
                 return current
             current = current.parent
+            depth += 1
         return None
 
     def _get_package_path(self, file_path: pathlib.Path, go_mod_root: pathlib.Path) -> str:
@@ -493,7 +500,9 @@ class GoHandler(LanguageHandler):
             print(f'go.mod already exists at {go_mod_path}')
         else:
             module_name = base_path.name
-            subprocess.run(['go', 'mod', 'init', module_name], cwd=base_path, capture_output=True)
+            result = subprocess.run(['go', 'mod', 'init', module_name], cwd=base_path, capture_output=True)
+            if result.returncode != 0:
+                raise RuntimeError(f'failed to initialize go module: {result.stderr.decode()}')
             print(f'initialized go module: {base_path}')
 
         gitignore_path = base_path / '.gitignore'
@@ -596,8 +605,8 @@ def create_file(config: Config, file_arg: str) -> int:
             print(f'error: no configuration found for path {relative_path.parent}', file=sys.stderr)
             return 1
 
-        source_template = template.get('source_template', '')
-        test_template = template.get('test_template')
+        source_template = template.get(SOURCE_TEMPLATE, '')
+        test_template = template.get(TEST_TEMPLATE)
 
         LANGUAGE_HANDLER_MAP[language].create_files(full_path.with_suffix(''), source_template, test_template)
 
@@ -635,7 +644,7 @@ def open_folder(config: Config, language: typing.Optional[str] = None) -> int:
         return 1
 
 
-def main() -> typing.Optional[int]:
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Unified test runner for multiple languages',
         epilog='Examples:\n  %(prog)s test python/file.py\n  %(prog)s run python/file.py\n  %(prog)s init\n  %(prog)s create python/leetcode/001',
@@ -670,7 +679,7 @@ def main() -> typing.Optional[int]:
             config.validate_config(set(LANGUAGE_HANDLER_MAP.keys()))
         except ValueError as e:
             print(f'config validation failed: {e}', file=sys.stderr)
-            return 1
+            sys.exit(1)
         return_code = init_directories(config)
     elif args.command == 'validate':
         try:
