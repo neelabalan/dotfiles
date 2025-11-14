@@ -9,6 +9,7 @@ fi
 
 export PATH="$PATH:$HOME/.dotfiles/scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin"
 
+export BASH_SILENCE_DEPRECATION_WARNING=1
 export CHEATCOLORS=true
 export LIBVA_DRIVER_NAME=i965
 export LS_COLORS="*.*=0:di=34"

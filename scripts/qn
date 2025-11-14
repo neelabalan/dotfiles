@@ -955,7 +955,7 @@ def main() -> None:
     weekly_subparsers.add_parser('next', aliases=['n'], help='Create/open next week note')
 
     subparsers.add_parser('monthly', help='Create/open monthly note')
-    subparsers.add_parser('open', help='Open notes directory')
+    subparsers.add_parser('open', aliases=['o'], help='Open notes directory')
     subparsers.add_parser('init', help='Initialize configuration')
     subparsers.add_parser('stats', help='Show note statistics')
     subparsers.add_parser('tags', help='Print all unique tags in notes')
@@ -994,7 +994,7 @@ def main() -> None:
             create_weekly_note()
     elif args.command == 'monthly':
         create_monthly_note()
-    elif args.command == 'open':
+    elif args.command in ['open', 'o']:
         open_notes_directory()
     elif args.command == 'backup':
         backup_notes(args.encrypt)
