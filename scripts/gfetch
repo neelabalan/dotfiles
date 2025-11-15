@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+
+import argparse
+import concurrent.futures
+import json
+import pathlib
+import sys
+import typing
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+def get_default_branch(owner: str, repo: str) -> typing.Optional[str]:
+    api_url = f'https://api.github.com/repos/{owner}/{repo}'
+
+    try:
+        with urllib.request.urlopen(api_url) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            return data.get('default_branch')
+    except Exception:
+        return 'main'
+
+
+def get_folder_contents(owner: str, repo: str, folder: str, branch: str) -> list[dict]:
+    api_url = f'https://api.github.com/repos/{owner}/{repo}/contents/{folder}?ref={branch}'
+
+    try:
+        with urllib.request.urlopen(api_url) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(f'error: folder not found: {folder}', file=sys.stderr)
+        else:
+            print(f'error: API request failed: {e}', file=sys.stderr)
+        return []
+    except Exception as e:
+        print(f'error: failed to fetch folder contents: {e}', file=sys.stderr)
+        return []
+
+
+def download_file(url: str, destination: pathlib.Path) -> bool:
+    try:
+        with urllib.request.urlopen(url) as response:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(response.read())
+        return True
+    except Exception as e:
+        print(f'error: failed to download file {destination}: {e}', file=sys.stderr)
+        return False
+
+
+def download_folder_recursive(
+    owner: str, repo: str, folder_path: str, destination: pathlib.Path, branch: str, executor: concurrent.futures.ThreadPoolExecutor | None = None
+) -> bool:
+    contents = get_folder_contents(owner, repo, folder_path, branch)
+
+    if not contents:
+        return False
+
+    success = True
+    futures = []
+
+    for item in contents:
+        if item['type'] == 'dir':
+            sub_path = f"{folder_path}/{item['name']}"
+            sub_dest = destination / item['name']
+            if not download_folder_recursive(owner, repo, sub_path, sub_dest, branch, executor):
+                success = False
+        elif item['type'] == 'file':
+            file_dest = destination / item['name']
+            print(f'downloading {item["path"]}...')
+            if executor:
+                future = executor.submit(download_file, item['download_url'], file_dest)
+                futures.append(future)
+            else:
+                if not download_file(item['download_url'], file_dest):
+                    success = False
+
+    for future in concurrent.futures.as_completed(futures):
+        if not future.result():
+            success = False
+
+    return success
+
+
+def parse_github_url(url: str) -> tuple[str | None, str | None, str | None, str | None]:
+    url = url.rstrip('/')
+
+    try:
+        parsed = urllib.parse.urlparse(url)
+
+        if 'github.com' not in parsed.netloc:
+            return None, None, None, None
+
+        parts = parsed.path.strip('/').split('/')
+
+        if len(parts) < 3:
+            return None, None, None, None
+
+        owner = parts[0]
+        repo = parts[1]
+
+        branch = None
+        folder = None
+
+        if parts[2] == 'tree' and len(parts) > 3:
+            branch = parts[3]
+            folder = '/'.join(parts[4:]) if len(parts) > 4 else ''
+        elif len(parts) > 2:
+            folder = '/'.join(parts[2:])
+        else:
+            return None, None, None, None
+
+        return owner, repo, folder, branch
+
+    except Exception:
+        return None, None, None, None
+
+
+def download(url: str, destination: str | None = None) -> bool:
+    owner, repo, folder, branch = parse_github_url(url)
+
+    if not owner or not repo or not folder:
+        print('error: invalid github url format', file=sys.stderr)
+        print('expected format: https://github.com/owner/repo/tree/branch/path/to/folder', file=sys.stderr)
+        return False
+
+    if not branch:
+        branch = get_default_branch(owner, repo)
+        if not branch:
+            print(f'error: could not determine default branch for {owner}/{repo}', file=sys.stderr)
+            return False
+
+    dest_path = pathlib.Path(destination or folder.split('/')[-1])
+
+    if dest_path.exists():
+        print(f'error: destination already exists: {dest_path}', file=sys.stderr)
+        return False
+
+    print(f'downloading {owner}/{repo}/{folder} from {branch}...')
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        success = download_folder_recursive(owner, repo, folder, dest_path, branch, executor)
+
+    if success:
+        print(f'downloaded to: {dest_path}')
+
+    return success
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description='Download a specific folder from a GitHub repository')
+    parser.add_argument('url', help='GitHub URL to the folder (e.g., https://github.com/owner/repo/tree/main/path/to/folder)')
+    parser.add_argument('-d', '--destination', help='destination directory (default: folder name)')
+
+    args = parser.parse_args()
+
+    success = download(args.url, args.destination)
+
+    sys.exit(0 if success else 1)
+
+
+if __name__ == '__main__':
+    main()
