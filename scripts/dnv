@@ -106,7 +106,25 @@ class DebianDistroConfig(DistroConfig):
         return 'echo "Acquire::Retries \\"3\\";" > /etc/apt/apt.conf.d/80-retries'
 
 
-class AlmaDistroConfig(DistroConfig):
+class RpmDistroConfig(DistroConfig):
+    def docker_install_cmd(self) -> str:
+        return textwrap.dedent("""
+            sudo dnf -y install dnf-plugins-core && \\
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+            sudo dnf install -y docker-ce-cli
+        """).strip()
+
+    def gcc_package(self) -> str:
+        return 'gcc'
+
+    def sysutils_packages(self) -> list[str]:
+        return ['procps', 'iproute']
+
+    def mirror_config(self) -> str:
+        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
+
+
+class AlmaDistroConfig(RpmDistroConfig):
     def __init__(self):
         super().__init__(
             name='alma',
@@ -117,24 +135,8 @@ class AlmaDistroConfig(DistroConfig):
             pkg_update='dnf update -y',
         )
 
-    def docker_install_cmd(self) -> str:
-        return textwrap.dedent("""
-            sudo dnf -y install dnf-plugins-core && \\
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
-            sudo dnf install -y docker-ce-cli
-        """).strip()
 
-    def gcc_package(self) -> str:
-        return 'gcc'
-
-    def sysutils_packages(self) -> list[str]:
-        return ['procps', 'iproute']
-
-    def mirror_config(self) -> str:
-        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
-
-
-class FedoraDistroConfig(DistroConfig):
+class FedoraDistroConfig(RpmDistroConfig):
     def __init__(self):
         super().__init__(
             name='fedora',
@@ -145,24 +147,8 @@ class FedoraDistroConfig(DistroConfig):
             pkg_update='dnf update -y',
         )
 
-    def docker_install_cmd(self) -> str:
-        return textwrap.dedent("""
-            sudo dnf -y install dnf-plugins-core && \\
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
-            sudo dnf install -y docker-ce-cli
-        """).strip()
 
-    def gcc_package(self) -> str:
-        return 'gcc'
-
-    def sysutils_packages(self) -> list[str]:
-        return ['procps', 'iproute']
-
-    def mirror_config(self) -> str:
-        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
-
-
-class CudaDistroConfig(DistroConfig):
+class CudaDistroConfig(RpmDistroConfig):
     def __init__(self):
         super().__init__(
             name='cuda',
@@ -172,22 +158,6 @@ class CudaDistroConfig(DistroConfig):
             pkg_install_flags='--skip-broken',
             pkg_update='dnf update -y',
         )
-
-    def docker_install_cmd(self) -> str:
-        return textwrap.dedent("""
-            sudo dnf -y install dnf-plugins-core && \\
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
-            sudo dnf install -y docker-ce-cli
-        """).strip()
-
-    def gcc_package(self) -> str:
-        return 'gcc'
-
-    def sysutils_packages(self) -> list[str]:
-        return ['procps', 'iproute']
-
-    def mirror_config(self) -> str:
-        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
 
 
 def resolve_dependencies(tools: dict[str, Tool], selected: list[str]) -> list[str]:
