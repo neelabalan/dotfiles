@@ -20,6 +20,39 @@ import typing
 DEBUG_ENABLED = os.environ.get('DEBUG') in ('1', 'TRUE', 'true')
 
 
+class ContainerEngine:
+    _cached_engine: str | None = None
+
+    @classmethod
+    def _detect(cls) -> str:
+        if cls._cached_engine is None:
+            env_engine = os.environ.get('CONTAINER_ENGINE')
+            if env_engine:
+                if shutil.which(env_engine):
+                    cls._cached_engine = env_engine
+                else:
+                    raise RuntimeError(f'CONTAINER_ENGINE={env_engine} not found in PATH')
+            elif shutil.which('podman'):
+                cls._cached_engine = 'podman'
+            elif shutil.which('docker'):
+                cls._cached_engine = 'docker'
+            else:
+                raise RuntimeError('no container engine found (docker or podman)')
+        return cls._cached_engine
+
+    @classmethod
+    def cmd(cls, *args: str) -> list[str]:
+        return [cls._detect(), *args]
+
+    @classmethod
+    def engine(cls) -> str:
+        return cls._detect()
+
+    @classmethod
+    def image_prune_cmd(cls) -> list[str]:
+        return [cls._detect(), 'image', 'prune', '-f']
+
+
 @dataclasses.dataclass
 class Tool:
     setup: list[str] = dataclasses.field(default_factory=list)
@@ -197,7 +230,7 @@ def _init_logger():
     fh.setLevel(level)
     logger.addHandler(ch)
     logger.addHandler(fh)
-    logger.debug('Logger initialized (level=%s) file=%s', logging.getLevelName(level), MAIN_LOG_FILE)
+    logger.debug('logger initialized (level=%s) file=%s', logging.getLevelName(level), MAIN_LOG_FILE)
     return logger
 
 
@@ -868,7 +901,7 @@ class ImageBuilder:
 
     def _image_exists(self, image_name: str) -> bool:
         return bool(
-            subprocess.run(['docker', 'images', '-q', image_name], capture_output=True, text=True).stdout.strip()
+            subprocess.run(ContainerEngine.cmd('images', '-q', image_name), capture_output=True, text=True).stdout.strip()
         )
 
     def _dockerfile_is_newer(self, dockerfile_path: pathlib.Path, image_name: str) -> bool:
@@ -893,7 +926,7 @@ class ImageBuilder:
 
     def _get_image_creation_time(self, image_name: str) -> str:
         result = subprocess.run(
-            ['docker', 'inspect', '--format', '{{.Created}}', image_name],
+            ContainerEngine.cmd('inspect', '--format', '{{.Created}}', image_name),
             capture_output=True,
             text=True,
         )
@@ -913,14 +946,13 @@ class ImageBuilder:
         logger.info(f'building image: {self.name}')
         dotfiles_dir = pathlib.Path.home() / '.dotfiles'
 
-        build_cmd = [
-            'docker',
+        build_cmd = ContainerEngine.cmd(
             'build',
             '-t',
             self.name,
             '-f',
             str(self.dockerfile_path),
-        ]
+        )
 
         if self.arch:
             build_cmd.extend(get_docker_platform_flag(self.arch))
@@ -935,7 +967,7 @@ class ImageBuilder:
 
         if DEBUG_ENABLED:
             # Debug mode - show live output, don't capture
-            logger.info('Debug mode: showing verbose Docker build output...')
+            logger.info(f'Debug mode: showing verbose {ContainerEngine.engine()} build output...')
             build_result = subprocess.run(build_cmd, cwd=str(dotfiles_dir))
             returncode = build_result.returncode
             stdout_output = stderr_output = 'Live output shown above'
@@ -964,13 +996,13 @@ class ImageBuilder:
 
     def _cleanup_dangling_images(self):
         try:
-            logger.debug('Cleaning up dangling images...')
-            result = subprocess.run(['docker', 'image', 'prune', '-f'], capture_output=True, text=True)
+            logger.debug('cleaning up dangling images...')
+            result = subprocess.run(ContainerEngine.image_prune_cmd(), capture_output=True, text=True)
             if result.returncode == 0 and result.stdout.strip():
-                logger.info('Cleaned up dangling images')
-                logger.debug(f'Cleanup output: {result.stdout.strip()}')
+                logger.info('cleaned up dangling images')
+                logger.debug(f'cleanup output: {result.stdout.strip()}')
         except Exception as e:
-            logger.debug(f'Failed to clean up dangling images: {e}')
+            logger.debug(f'failed to clean up dangling images: {e}')
 
 
 class DevContainerManager:
@@ -979,7 +1011,7 @@ class DevContainerManager:
         if not container_id:
             return False
         result = subprocess.run(
-            ['docker', 'inspect', '--format', '{{.State.Running}}', container_id],
+            ContainerEngine.cmd('inspect', '--format', '{{.State.Running}}', container_id),
             capture_output=True,
             text=True,
         )
@@ -987,7 +1019,7 @@ class DevContainerManager:
 
     @staticmethod
     def start(image_name: str, name: str | None, docker_config: dict, arch: str | None = None) -> str | None:
-        cmd = ['docker', 'run', '-it', '--label', 'devenv=true']
+        cmd = ContainerEngine.cmd('run', '-it', '--label', 'devenv=true')
 
         # Add platform flag if cross-platform run is needed
         if arch:
@@ -1008,22 +1040,22 @@ class DevContainerManager:
         cmd.append('bash')
         logger.info(f'starting container: {" ".join(cmd)}')
 
-        # replace the current python process with Docker - this exits Python
+        # replace the current python process with container engine - this exits Python
         # and drops directly into the interactive container
-        os.execvp('docker', cmd)
+        os.execvp(ContainerEngine.engine(), cmd)
 
     @staticmethod
     def stop(container_id: str) -> bool:
         if not container_id:
             return False
-        result = subprocess.run(['docker', 'stop', container_id], capture_output=True)
+        result = subprocess.run(ContainerEngine.cmd('stop', container_id), capture_output=True)
         return result.returncode == 0
 
     @staticmethod
     def remove(container_id: str) -> bool:
         if not container_id:
             return False
-        result = subprocess.run(['docker', 'rm', container_id], capture_output=True, text=True)
+        result = subprocess.run(ContainerEngine.cmd('rm', container_id), capture_output=True, text=True)
         if result.returncode == 0:
             logger.info(f"container '{container_id}' removed successfully")
             return True
@@ -1035,7 +1067,7 @@ class DevContainerManager:
     def exec_command(container_id: str, command: list[str]) -> subprocess.CompletedProcess:
         if not container_id:
             raise RuntimeError('container not started')
-        return subprocess.run(['docker', 'exec', '-it', container_id] + command)
+        return subprocess.run(ContainerEngine.cmd('exec', '-it', container_id, *command))
 
     @staticmethod
     def is_healthy(container_id: str) -> bool:
@@ -1045,14 +1077,14 @@ class DevContainerManager:
     def get_logs(container_id: str) -> str:
         if not container_id:
             return ''
-        result = subprocess.run(['docker', 'logs', container_id], capture_output=True, text=True)
+        result = subprocess.run(ContainerEngine.cmd('logs', container_id), capture_output=True, text=True)
         return result.stdout if result.returncode == 0 else ''
 
     @staticmethod
     def start_existing_container(container_name: str) -> bool:
         if not container_name:
             return False
-        result = subprocess.run(['docker', 'start', container_name], capture_output=True, text=True)
+        result = subprocess.run(ContainerEngine.cmd('start', container_name), capture_output=True, text=True)
         if result.returncode == 0:
             logger.info(f"container '{container_name}' started successfully")
             return True
@@ -1065,7 +1097,7 @@ class DevContainerManager:
         if not container_name:
             return False
         result = subprocess.run(
-            ['docker', 'inspect', '--format', '{{.State.Status}}', container_name],
+            ContainerEngine.cmd('inspect', '--format', '{{.State.Status}}', container_name),
             capture_output=True,
             text=True,
         )
@@ -1076,21 +1108,20 @@ class DevContainerManager:
         if not container_id:
             logger.warning('no container ID available')
             return
-        result = subprocess.run(['docker', 'exec', '-it', container_id, shell])
+        result = subprocess.run(ContainerEngine.cmd('exec', '-it', container_id, shell))
         if result.returncode != 0:
             logger.error(f"failed to login to container '{container_id}' (ensure running)")
 
     @staticmethod
     def remove_volumes(container_name: str) -> bool:
         volume_result = subprocess.run(
-            [
-                'docker',
+            ContainerEngine.cmd(
                 'volume',
                 'ls',
                 '--filter',
                 f'label=devenv.container={container_name}',
                 '-q',
-            ],
+            ),
             capture_output=True,
             text=True,
         )
@@ -1098,7 +1129,7 @@ class DevContainerManager:
         if volume_result.stdout.strip():
             volumes = volume_result.stdout.strip().split('\n')
             for volume in volumes:
-                vol_del_result = subprocess.run(['docker', 'volume', 'rm', volume], capture_output=True)
+                vol_del_result = subprocess.run(ContainerEngine.cmd('volume', 'rm', volume), capture_output=True)
                 if vol_del_result.returncode == 0:
                     logger.info(f"volume '{volume}' removed")
                 else:
@@ -1109,15 +1140,14 @@ class DevContainerManager:
     @staticmethod
     def list_deployments() -> list[dict]:
         result = subprocess.run(
-            [
-                'docker',
+            ContainerEngine.cmd(
                 'ps',
                 '-a',
                 '--filter',
                 'label=devenv=true',
                 '--format',
                 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}',
-            ],
+            ),
             capture_output=True,
             text=True,
         )
@@ -1126,7 +1156,7 @@ class DevContainerManager:
             logger.info('devenv deployments:')
             for line in result.stdout.strip().splitlines():
                 logger.info(f'{line}')
-            return []  # Return empty for now, could parse the output if needed
+            return []
         else:
             logger.error(f'error listing deployments: {result.stderr.strip()}')
             return []
