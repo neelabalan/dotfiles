@@ -274,7 +274,7 @@ class DevEnvironmentConfig:
 
         # Debian/Ubuntu configurations
         deb_config = {
-            'docker_mirror_configure': 'echo "Acquire::Retries \\"3\\";" > /etc/apt/apt.conf.d/80-retries',
+            'mirror_configure': 'echo "Acquire::Retries \\"3\\";" > /etc/apt/apt.conf.d/80-retries',
             'update_cmd': 'sudo apt update && sudo apt upgrade -y',
             'base_packages': 'sudo apt install -y vim curl git build-essential make',
             'base_image': base_image or 'debian:bookworm',
@@ -299,7 +299,7 @@ class DevEnvironmentConfig:
 
         # RHEL/Fedora/AlmaLinux configurations
         rpm_config = {
-            'docker_mirror_configure': 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf',
+            'mirror_configure': 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf',
             'update_cmd': 'sudo dnf update -y',
             'base_packages': 'sudo dnf install -y vim curl git make gcc --skip-broken',
             'base_image': base_image or 'almalinux:9',
@@ -509,7 +509,7 @@ class DockerfileBuilder:
             return DockerfileTemplate(
                 base_template.safe_substitute(
                     base_image=self.config.current_distro_config['base_image'],
-                    mirror_configure=self.config.current_distro_config.get('docker_mirror_configure', 'true'),
+                    mirror_configure=self.config.current_distro_config.get('mirror_configure', 'true'),
                     update='dnf update -y',
                     install_sudo='dnf install -y sudo',
                     username=self.config.username,
@@ -520,7 +520,7 @@ class DockerfileBuilder:
             return DockerfileTemplate(
                 base_template.safe_substitute(
                     base_image=self.config.current_distro_config['base_image'],
-                    mirror_configure=self.config.current_distro_config.get('docker_mirror_configure', 'true'),
+                    mirror_configure=self.config.current_distro_config.get('mirror_configure', 'true'),
                     update='apt update && apt upgrade -y',
                     install_sudo='apt install -y sudo',
                     username=self.config.username,
