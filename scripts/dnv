@@ -28,6 +28,7 @@ class Tool:
     copy: list[dict[str, str]] = dataclasses.field(default_factory=list)
 
 
+@dataclasses.dataclass
 class DistroConfig:
     name: str
     pkg_format: str
@@ -35,16 +36,6 @@ class DistroConfig:
     pkg_install: str
     pkg_install_flags: str
     pkg_update: str
-
-    def __init__(
-        self, name: str, pkg_format: str, base_image: str, pkg_install: str, pkg_install_flags: str, pkg_update: str
-    ):
-        self.name = name
-        self.pkg_format = pkg_format
-        self.base_image = base_image
-        self.pkg_install = pkg_install
-        self.pkg_install_flags = pkg_install_flags
-        self.pkg_update = pkg_update
 
     def install(self, *packages: str) -> str:
         pkgs = ' '.join(packages)
@@ -54,7 +45,7 @@ class DistroConfig:
 
     def install_nosudo(self, *packages: str) -> str:
         pkgs = ' '.join(packages)
-        cmd = self.pkg_install.replace('sudo ', '')
+        cmd = self.pkg_install.removeprefix('sudo ')
         if self.pkg_install_flags:
             return f'{cmd} {pkgs} {self.pkg_install_flags}'
         return f'{cmd} {pkgs}'
@@ -306,6 +297,10 @@ class DevEnvironmentConfig:
                 {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
             ],
             'tools': [
+                'git',
+                'make',
+                'gcc',
+                'vim',
                 'python',
                 'node',
                 'rust',
@@ -363,7 +358,7 @@ class DevEnvironmentConfig:
                 }
             ],
             'dotfiles': ['.bashrc', '.vimrc', '.gitconfig'],
-            'tools': ['python', 'starship', 'neovim'],
+            'tools': ['python', 'starship', 'neovim', 'dotfiles'],
         },
     }
 
@@ -599,6 +594,13 @@ class DevEnvironmentConfig:
                 ]
                 if self.profile
                 else [],
+            ),
+            'cleanup': Tool(
+                setup=[
+                    pkg.install_nosudo('clean', 'all')
+                    if pkg.pkg_format == 'rpm'
+                    else 'sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*'
+                ],
             ),
         }
 
@@ -1334,8 +1336,11 @@ def main() -> None:
             print(f'- {profile_name}:')
             if 'distro' in profile_data:
                 distro = profile_data['distro']
-                base_image = DevEnvironmentConfig.DISTROS[distro].base_image
-                print(f'  distro: {distro} ({base_image})')
+                if distro in DevEnvironmentConfig.DISTROS:
+                    base_image = DevEnvironmentConfig.DISTROS[distro].base_image
+                    print(f'  distro: {distro} ({base_image})')
+                else:
+                    print(f'  distro: {distro} (invalid)')
             if 'tools' in profile_data:
                 tools = profile_data['tools']
                 print(f'  tools: {", ".join(tools)}')
