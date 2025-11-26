@@ -26,7 +26,13 @@ class ContainerEngine:
     @classmethod
     def _detect(cls) -> str:
         if cls._cached_engine is None:
-            if shutil.which('podman'):
+            env_engine = os.environ.get('CONTAINER_ENGINE')
+            if env_engine:
+                if shutil.which(env_engine):
+                    cls._cached_engine = env_engine
+                else:
+                    raise RuntimeError(f'CONTAINER_ENGINE={env_engine} not found in PATH')
+            elif shutil.which('podman'):
                 cls._cached_engine = 'podman'
             elif shutil.which('docker'):
                 cls._cached_engine = 'docker'
@@ -961,7 +967,7 @@ class ImageBuilder:
 
         if DEBUG_ENABLED:
             # Debug mode - show live output, don't capture
-            logger.info('Debug mode: showing verbose Docker build output...')
+            logger.info(f'Debug mode: showing verbose {ContainerEngine.engine()} build output...')
             build_result = subprocess.run(build_cmd, cwd=str(dotfiles_dir))
             returncode = build_result.returncode
             stdout_output = stderr_output = 'Live output shown above'
