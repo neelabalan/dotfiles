@@ -27,7 +27,7 @@ def analyze_repository(repo_path: pathlib.Path) -> None:
     total_commits_str = run_command(["git", "rev-list", "--count", "HEAD"], cwd=repo_path)
     total_commits = int(total_commits_str) if total_commits_str else 0
 
-    cmd = ["git", "log", "--numstat", "--pretty=format:COMMIT|%ct|%an"]
+    cmd = ["git", "log", "--numstat", "--pretty=format:COMMIT%x00%ct%x00%an"]
     process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, text=True, errors="replace", cwd=repo_path
     )
@@ -44,9 +44,9 @@ def analyze_repository(repo_path: pathlib.Path) -> None:
         if not line:
             continue
 
-        if line.startswith("COMMIT|"):
-            parts = line.split("|")
-            if len(parts) >= 3:
+        if line.startswith("COMMIT\x00"):
+            parts = line.split("\x00", maxsplit=2)
+            if len(parts) == 3:
                 try:
                     ts = int(parts[1])
                     author = parts[2]
@@ -113,13 +113,17 @@ def analyze_repository(repo_path: pathlib.Path) -> None:
     all_files = run_command(["git", "ls-files"], cwd=repo_path).splitlines()
     total_files = len(all_files)
     print(f"total number of files: {total_files}")
+
+    if total_files == 0:
+        return
+
     print()
     print("number of files by extension and percentage contribution:")
     extensions: dict[str, int] = collections.defaultdict(int)
     for f in all_files:
-        if "." in f:
-            ext = f.rsplit(".", 1)[1]
-            extensions[ext] += 1
+        ext = pathlib.Path(f).suffix
+        if ext:
+            extensions[ext[1:]] += 1
         else:
             extensions["[no extension]"] += 1
 
