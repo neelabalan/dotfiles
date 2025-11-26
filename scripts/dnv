@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import dataclasses
 import datetime
 import io
 import logging
@@ -17,6 +18,203 @@ import time
 import typing
 
 DEBUG_ENABLED = os.environ.get('DEBUG') in ('1', 'TRUE', 'true')
+
+
+@dataclasses.dataclass
+class Tool:
+    setup: list[str] = dataclasses.field(default_factory=list)
+    depends_on: list[str] = dataclasses.field(default_factory=list)
+    env: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    copy: list[dict[str, str]] = dataclasses.field(default_factory=list)
+
+
+class DistroConfig:
+    name: str
+    pkg_format: str
+    base_image: str
+    pkg_install: str
+    pkg_install_flags: str
+    pkg_update: str
+
+    def __init__(
+        self, name: str, pkg_format: str, base_image: str, pkg_install: str, pkg_install_flags: str, pkg_update: str
+    ):
+        self.name = name
+        self.pkg_format = pkg_format
+        self.base_image = base_image
+        self.pkg_install = pkg_install
+        self.pkg_install_flags = pkg_install_flags
+        self.pkg_update = pkg_update
+
+    def install(self, *packages: str) -> str:
+        pkgs = ' '.join(packages)
+        if self.pkg_install_flags:
+            return f'{self.pkg_install} {pkgs} {self.pkg_install_flags}'
+        return f'{self.pkg_install} {pkgs}'
+
+    def install_nosudo(self, *packages: str) -> str:
+        pkgs = ' '.join(packages)
+        cmd = self.pkg_install.replace('sudo ', '')
+        if self.pkg_install_flags:
+            return f'{cmd} {pkgs} {self.pkg_install_flags}'
+        return f'{cmd} {pkgs}'
+
+    def docker_install_cmd(self) -> str:
+        raise NotImplementedError('subclass must implement docker_install_cmd')
+
+    def gcc_package(self) -> str:
+        raise NotImplementedError('subclass must implement gcc_package')
+
+    def sysutils_packages(self) -> list[str]:
+        raise NotImplementedError('subclass must implement sysutils_packages')
+
+    def mirror_config(self) -> str:
+        raise NotImplementedError('subclass must implement mirror_config')
+
+
+class DebianDistroConfig(DistroConfig):
+    def __init__(self):
+        super().__init__(
+            name='debian',
+            pkg_format='deb',
+            base_image='debian:bookworm',
+            pkg_install='sudo apt install -y',
+            pkg_install_flags='',
+            pkg_update='apt update && apt upgrade -y',
+        )
+
+    def docker_install_cmd(self) -> str:
+        return textwrap.dedent("""
+            sudo install -m 0755 -d /etc/apt/keyrings && \\
+            sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \\
+            sudo chmod a+r /etc/apt/keyrings/docker.asc && \\
+            echo \\
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \\
+              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \\
+              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \\
+            sudo apt-get update -y && \\
+            sudo apt-get install docker-ce-cli -y
+        """).strip()
+
+    def gcc_package(self) -> str:
+        return 'build-essential'
+
+    def sysutils_packages(self) -> list[str]:
+        return ['procps', 'iproute2']
+
+    def mirror_config(self) -> str:
+        return 'echo "Acquire::Retries \\"3\\";" > /etc/apt/apt.conf.d/80-retries'
+
+
+class AlmaDistroConfig(DistroConfig):
+    def __init__(self):
+        super().__init__(
+            name='alma',
+            pkg_format='rpm',
+            base_image='almalinux:9',
+            pkg_install='sudo dnf install -y',
+            pkg_install_flags='--skip-broken',
+            pkg_update='dnf update -y',
+        )
+
+    def docker_install_cmd(self) -> str:
+        return textwrap.dedent("""
+            sudo dnf -y install dnf-plugins-core && \\
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+            sudo dnf install -y docker-ce-cli
+        """).strip()
+
+    def gcc_package(self) -> str:
+        return 'gcc'
+
+    def sysutils_packages(self) -> list[str]:
+        return ['procps', 'iproute']
+
+    def mirror_config(self) -> str:
+        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
+
+
+class FedoraDistroConfig(DistroConfig):
+    def __init__(self):
+        super().__init__(
+            name='fedora',
+            pkg_format='rpm',
+            base_image='fedora:41',
+            pkg_install='sudo dnf install -y',
+            pkg_install_flags='',
+            pkg_update='dnf update -y',
+        )
+
+    def docker_install_cmd(self) -> str:
+        return textwrap.dedent("""
+            sudo dnf -y install dnf-plugins-core && \\
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+            sudo dnf install -y docker-ce-cli
+        """).strip()
+
+    def gcc_package(self) -> str:
+        return 'gcc'
+
+    def sysutils_packages(self) -> list[str]:
+        return ['procps', 'iproute']
+
+    def mirror_config(self) -> str:
+        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
+
+
+class CudaDistroConfig(DistroConfig):
+    def __init__(self):
+        super().__init__(
+            name='cuda',
+            pkg_format='rpm',
+            base_image='nvidia/cuda:11.8.0-runtime-ubi8',
+            pkg_install='sudo dnf install -y',
+            pkg_install_flags='--skip-broken',
+            pkg_update='dnf update -y',
+        )
+
+    def docker_install_cmd(self) -> str:
+        return textwrap.dedent("""
+            sudo dnf -y install dnf-plugins-core && \\
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+            sudo dnf install -y docker-ce-cli
+        """).strip()
+
+    def gcc_package(self) -> str:
+        return 'gcc'
+
+    def sysutils_packages(self) -> list[str]:
+        return ['procps', 'iproute']
+
+    def mirror_config(self) -> str:
+        return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
+
+
+def resolve_dependencies(tools: dict[str, Tool], selected: list[str]) -> list[str]:
+    resolved: list[str] = []
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        if name in in_stack:
+            raise ValueError(f'circular dependency detected: {name}')
+        if name not in tools:
+            raise ValueError(f'unknown tool: {name}')
+
+        in_stack.add(name)
+        for dep in tools[name].depends_on:
+            visit(dep)
+        in_stack.remove(name)
+        visited.add(name)
+        resolved.append(name)
+
+    for tool_name in selected:
+        visit(tool_name)
+
+    return resolved
+
 
 def _init_logger():
     LOGS_BASE_DIR = pathlib.Path.home() / '.dotfiles' / '.devenv' / 'logs'
@@ -69,10 +267,14 @@ class DockerfileTemplate(string.Template):
     delimiter = '<$>'
 
 
-# TODO:
-# - add cpu/mem limits at profile level
-# - add arch as well?
 class DevEnvironmentConfig:
+    DISTROS: dict[str, DistroConfig] = {
+        'debian': DebianDistroConfig(),
+        'alma': AlmaDistroConfig(),
+        'fedora': FedoraDistroConfig(),
+        'cuda': CudaDistroConfig(),
+    }
+
     PROFILES: dict[str, dict[str, typing.Any]] = {
         'just-dotfiles': {
             'dotfiles': [
@@ -88,35 +290,35 @@ class DevEnvironmentConfig:
                 '.config/nvim',
                 '.config/.ghc',
                 '.config/kitty',
-                '.config/mpv'
+                '.config/mpv',
             ]
         },
         'workstation': {
-            'docker': {
-                'distro': 'rpm',
-                'arch': 'x86_64',
-                'base_image': 'almalinux:9',
-                'container_user': 'blue',
-                # 'exposed_ports': [8080, 3000, 5000],
-                'volumes': [
-                    # {'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'},
-                    {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
-                ],
-            },
+            'distro': 'alma',
+            'arch': 'x86_64',
+            'container_user': 'blue',
+            'volumes': [
+                {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
+            ],
             'tools': [
-                'init',
                 'python',
-                'dotfiles',
                 'node',
                 'rust',
                 'go',
-                'tools',
+                'sdkman',
                 'neovim',
                 'starship',
-                'dotfiles',
+                'fzf',
+                'ripgrep',
+                'tokei',
+                'eza',
+                'kubectl',
+                'ipython',
+                'ranger',
+                'sysutils',
                 'ssh',
                 'docker',
-                'sdkman',
+                'dotfiles',
             ],
             'dotfiles': [
                 '.bashrc',
@@ -127,28 +329,31 @@ class DevEnvironmentConfig:
             ],
         },
         'workstation-arm': {
-            'docker': {
-                'distro': 'rpm',
-                'arch': 'aarch64',
-                'base_image': 'almalinux:9',
-                'container_user': 'blue',
-                'volumes': [
-                    {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
-                ],
-            },
+            'distro': 'alma',
+            'arch': 'aarch64',
+            'container_user': 'blue',
+            'volumes': [
+                {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
+            ],
             'tools': [
-                'init',
                 'python',
-                'dotfiles',
                 'node',
                 'rust',
                 'go',
-                'tools',
+                'sdkman',
                 'neovim',
                 'starship',
+                'fzf',
+                'ripgrep',
+                'tokei',
+                'eza',
+                'kubectl',
+                'ipython',
+                'ranger',
+                'sysutils',
                 'ssh',
                 'docker',
-                'sdkman',
+                'dotfiles',
             ],
             'dotfiles': [
                 '.bashrc',
@@ -158,42 +363,35 @@ class DevEnvironmentConfig:
             ],
         },
         'python-minimal': {
-            'docker': {
-                'distro': 'rpm',
-                'arch': 'x86_64',
-                'container_user': 'blue',
-                'exposed_ports': [8000],
-                'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
-            },
-            'tools': ['init', 'python', 'tools', 'dotfiles'],
+            'distro': 'alma',
+            'arch': 'x86_64',
+            'container_user': 'blue',
+            'exposed_ports': [8000],
+            'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
+            'tools': ['python', 'fzf', 'ripgrep', 'ipython', 'dotfiles'],
             'dotfiles': ['.bashrc', '.gitconfig'],
         },
         'python-minimal-arm': {
-            'docker': {
-                'distro': 'rpm',
-                'arch': 'aarch64',
-                'container_user': 'blue',
-                'exposed_ports': [8000],
-                'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
-            },
-            'tools': ['init', 'python', 'tools', 'dotfiles'],
+            'distro': 'alma',
+            'arch': 'aarch64',
+            'container_user': 'blue',
+            'exposed_ports': [8000],
+            'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
+            'tools': ['python', 'fzf', 'ripgrep', 'ipython', 'dotfiles'],
             'dotfiles': ['.bashrc', '.gitconfig'],
         },
         'ml-cuda': {
-            'docker': {
-                'distro': 'rpm',
-                'arch': 'x86_64',
-                'base_image': 'nvidia/cuda:11.8.0-runtime-ubi8',
-                'container_user': 'developer',
-                'working_directory': '/home/developer/workspace',
-                'volumes': [
-                    {
-                        'source': './ml-workspace',
-                        'target': '/home/developer/workspace',
-                        'mode': 'rw',
-                    }
-                ],
-            },
+            'distro': 'cuda',
+            'arch': 'x86_64',
+            'container_user': 'developer',
+            'working_directory': '/home/developer/workspace',
+            'volumes': [
+                {
+                    'source': './ml-workspace',
+                    'target': '/home/developer/workspace',
+                    'mode': 'rw',
+                }
+            ],
             'dotfiles': ['.bashrc', '.vimrc', '.gitconfig'],
             'tools': ['python', 'starship', 'neovim'],
         },
@@ -206,18 +404,16 @@ class DevEnvironmentConfig:
             available = list(cls.PROFILES.keys())
             raise ValueError(f"profile '{profile}' not found. available profiles: {available}")
 
-        docker_config = profile_data.get('docker', {})
-
         return cls(
-            distro=docker_config.get('distro', 'rpm'),
-            arch=docker_config.get('arch', 'x86_64'),
-            username=docker_config.get('container_user', 'blue'),
+            distro=profile_data.get('distro', 'alma'),
+            arch=profile_data.get('arch', 'x86_64'),
+            username=profile_data.get('container_user', 'blue'),
             profile=profile,
         )
 
     def __init__(
         self,
-        distro: str = 'rpm',
+        distro: str = 'alma',
         arch: str = 'x86_64',
         username: str = 'blue',
         profile: str | None = None,
@@ -235,6 +431,9 @@ class DevEnvironmentConfig:
             'nvm': 'v0.39.2',
             'eza': 'v0.21.1',
             'neovim': '0.11.0',
+            'fzf': '0.56.3',
+            'ripgrep': '14.1.1',
+            'tokei': '12.1.2',
         }
 
         # Architecture mappings
@@ -244,12 +443,18 @@ class DevEnvironmentConfig:
                 'kubectl_arch': 'amd64',
                 'eza_target': 'x86_64-unknown-linux-gnu',
                 'nvim_arch': 'x86_64',
+                'fzf_arch': 'amd64',
+                'ripgrep_arch': 'x86_64-unknown-linux-musl',
+                'tokei_arch': 'x86_64-unknown-linux-gnu',
             },
             'aarch64': {
                 'go_arch': 'arm64',
                 'kubectl_arch': 'arm64',
                 'eza_target': 'aarch64-unknown-linux-gnu',
                 'nvim_arch': 'arm64',
+                'fzf_arch': 'arm64',
+                'ripgrep_arch': 'aarch64-unknown-linux-gnu',
+                'tokei_arch': 'aarch64-unknown-linux-gnu',
             },
         }
 
@@ -265,182 +470,173 @@ class DevEnvironmentConfig:
         return {}
 
     def _setup_distro_config(self) -> None:
-        profile_data = {}
-        if self.profile and self.profile in self.PROFILES:
-            profile_data = self.PROFILES[self.profile]
+        if self.distro not in self.DISTROS:
+            raise ValueError(f'unsupported distro: {self.distro}. supported: {list(self.DISTROS.keys())}')
 
-        docker_config = profile_data.get('docker', {})
-        base_image = docker_config.get('base_image')
+        self.current_distro_config = self.DISTROS[self.distro]
 
-        # Debian/Ubuntu configurations
-        deb_config = {
-            'mirror_configure': 'echo "Acquire::Retries \\"3\\";" > /etc/apt/apt.conf.d/80-retries',
-            'update_cmd': 'sudo apt update && sudo apt upgrade -y',
-            'base_packages': 'sudo apt install -y vim curl git build-essential make',
-            'base_image': base_image or 'debian:bookworm',
-            'curl_install': 'sudo apt install -y curl',
-            'tar_install': 'sudo apt install -y tar',
-            'tool_setup': ['sudo apt install -y ranger fzf ripgrep wget ncdu unzip tokei tmux zip'],
-            'ssh_setup': 'sudo apt install -y openssh-server',
-            'optional_packages': 'sudo apt install -y procps iproute2',
-            'docker_install': textwrap.dedent("""
-                sudo install -m 0755 -d /etc/apt/keyrings && \\
-                sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \\
-                sudo chmod a+r /etc/apt/keyrings/docker.asc && \\
-                echo \\
-                  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \\
-                  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \\
-                  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \\
-                sudo apt-get update -y && \\
-                sudo apt-get install docker-ce-cli -y
-                """).strip(),
-            'cleanup': ['sudo apt-get clean', 'sudo rm -rf /var/lib/apt/lists/*'],
-        }
+    def _generate_conf(self) -> dict[str, Tool]:
+        pkg = self.current_distro_config
+        arch = self.current_arch_map
+        v = self.versions
 
-        # RHEL/Fedora/AlmaLinux configurations
-        rpm_config = {
-            'mirror_configure': 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf',
-            'update_cmd': 'sudo dnf update -y',
-            'base_packages': 'sudo dnf install -y vim curl git make gcc --skip-broken',
-            'base_image': base_image or 'almalinux:9',
-            'curl_install': 'sudo dnf install -y curl --skip-broken',
-            'tar_install': 'sudo dnf install -y tar',
-            'tool_setup': [
-                'sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y ranger fzf ripgrep ncdu unzip tokei tmux zip'
-            ],
-            'ssh_setup': 'sudo dnf install -y openssh-server',
-            'optional_packages': 'sudo dnf install -y procps iproute',
-            'docker_install': textwrap.dedent("""
-                sudo dnf -y install dnf-plugins-core && \\
-                sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
-                sudo dnf install -y docker-ce-cli
-                """).strip(),
-            'cleanup': [
-                """sudo dnf clean all && \\
-                sudo rm -rf /var/cache/dnf/* && \\
-                sudo rm -rf /usr/share/doc && \\
-                sudo rm -rf /root/.cache""",
-            ],
-        }
-
-        # Set current distro config
-        if self.distro == 'deb':
-            self.current_distro_config = deb_config
-        elif self.distro == 'rpm':
-            self.current_distro_config = rpm_config
-        else:
-            raise ValueError(f'unsupported distro: {self.distro}')
-
-    def _generate_dotfile_config(self) -> dict:
-        config = {
-            'prepare': ['mkdir -p .dotfiles'],
-            'copy': [{'source': '.', 'destination': '.dotfiles/'}],
-        }
-
-        if self.profile:
-            config['setup'] = [
-                'ls ~/.dotfiles/',
-                f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync --source-dir=~/.dotfiles/ --profile={self.profile}',
-            ]
-
-        return config
-
-    def _generate_conf(self) -> dict:
-        distro_config = self.current_distro_config
-
-        all_tools = {
-            'init': {
-                'setup': [distro_config['base_packages']],
-            },
-            'python': {
-                'env': [{'PATH': '$HOME/.local/bin:$PATH'}],
-                'setup': [
-                    f'curl -LsSf https://astral.sh/uv/{self.versions["uv"]}/install.sh | sh && uv python install 3.11 3.13'
-                ],
-            },
-            'dotfiles': self._generate_dotfile_config(),
-            'starship': {
-                'prepare': [distro_config['curl_install']],
-                'setup': ['curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config'],
-            },
-            'node': {
-                'prepare': [distro_config['curl_install']],
-                'setup': [
-                    f"""curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{self.versions['nvm']}/install.sh | bash && \\
+        all_tools: dict[str, Tool] = {
+            'curl': Tool(
+                setup=[pkg.install('curl')],
+            ),
+            'tar': Tool(
+                setup=[pkg.install('tar')],
+            ),
+            'unzip': Tool(
+                setup=[pkg.install('unzip')],
+            ),
+            'zip': Tool(
+                setup=[pkg.install('zip')],
+            ),
+            'git': Tool(
+                setup=[pkg.install('git')],
+            ),
+            'make': Tool(
+                setup=[pkg.install('make')],
+            ),
+            'gcc': Tool(
+                setup=[pkg.install(pkg.gcc_package())],
+            ),
+            'vim': Tool(
+                setup=[pkg.install('vim')],
+            ),
+            'ranger': Tool(
+                depends_on=['python'],
+                setup=['uv tool install ranger-fm'],
+            ),
+            'sysutils': Tool(
+                setup=[pkg.install(*pkg.sysutils_packages())],
+            ),
+            'openssh': Tool(
+                setup=[pkg.install('openssh-server')],
+            ),
+            'python': Tool(
+                depends_on=['curl'],
+                env=[{'PATH': '$HOME/.local/bin:$PATH'}],
+                setup=[f'curl -LsSf https://astral.sh/uv/{v["uv"]}/install.sh | sh && uv python install 3.11 3.13'],
+            ),
+            'node': Tool(
+                depends_on=['curl'],
+                setup=[
+                    f"""curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{v['nvm']}/install.sh | bash && \\
                     export NVM_DIR=$HOME/.nvm && \\
                     source $NVM_DIR/nvm.sh && nvm install 22"""
                 ],
-            },
-            'rust': {
-                'setup': ['curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path'],
-                'env': [{'PATH': '$PATH:$HOME/.cargo/bin'}],
-            },
-            'tools': {
-                'prepare': [distro_config['tar_install']],
-                'setup': list(distro_config['tool_setup'])
-                + [
-                    f"""mkdir -p ~/.local/bin && curl -L 'https://github.com/eza-community/eza/releases/download/{self.versions['eza']}/eza_{self.current_arch_map['eza_target']}.tar.gz' | tar -xz -C /tmp && mv /tmp/eza ~/.local/bin/ && \\
-                    uv tool install --python 3.11 ipython && \\
-                    curl -LO 'https://dl.k8s.io/release/{self.versions['kubectl']}/bin/linux/{self.current_arch_map['kubectl_arch']}/kubectl' && \\
-                    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl"""
+            ),
+            'rust': Tool(
+                depends_on=['curl'],
+                setup=['curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path'],
+                env=[{'PATH': '$PATH:$HOME/.cargo/bin'}],
+            ),
+            'go': Tool(
+                depends_on=['curl', 'tar'],
+                setup=[
+                    f"""curl -LO https://go.dev/dl/{v['go']}.linux-{arch['go_arch']}.tar.gz && \\
+                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {v['go']}.linux-{arch['go_arch']}.tar.gz && \\
+                    rm {v['go']}.linux-{arch['go_arch']}.tar.gz && \\
+                    echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc""",
                 ],
-            },
-            'ssh': {
-                'prepare': [distro_config['ssh_setup']],
-                'setup': [
+                env=[{'PATH': '$PATH:/usr/local/go/bin'}],
+            ),
+            'sdkman': Tool(
+                depends_on=['curl', 'unzip', 'zip'],
+                setup=['curl -s "https://get.sdkman.io" | bash'],
+            ),
+            'pnpm': Tool(
+                depends_on=['curl', 'node'],
+                setup=[f'curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={v["pnpm"]} sh -'],
+            ),
+            'ipython': Tool(
+                depends_on=['python'],
+                setup=['uv tool install --python 3.11 ipython'],
+            ),
+            'neovim': Tool(
+                depends_on=['curl', 'tar'],
+                setup=[
+                    f"""curl -LO https://github.com/neovim/neovim/releases/download/v{v['neovim']}/nvim-linux-{arch['nvim_arch']}.tar.gz && \\
+                    sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{arch['nvim_arch']}.tar.gz && \\
+                    sudo ln -sf /opt/nvim-linux-{arch['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
+                    rm nvim-linux-{arch['nvim_arch']}.tar.gz"""
+                ],
+            ),
+            'starship': Tool(
+                depends_on=['curl'],
+                setup=['curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config'],
+            ),
+            'fzf': Tool(
+                depends_on=['curl', 'tar'],
+                setup=[
+                    f"""curl -LO https://github.com/junegunn/fzf/releases/download/v{v['fzf']}/fzf-{v['fzf']}-linux_{arch['fzf_arch']}.tar.gz && \\
+                    tar -xzf fzf-{v['fzf']}-linux_{arch['fzf_arch']}.tar.gz && \\
+                    sudo mv fzf /usr/local/bin/ && rm fzf-{v['fzf']}-linux_{arch['fzf_arch']}.tar.gz"""
+                ],
+            ),
+            'ripgrep': Tool(
+                depends_on=['curl', 'tar'],
+                setup=[
+                    f"""curl -LO https://github.com/BurntSushi/ripgrep/releases/download/{v['ripgrep']}/ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}.tar.gz && \\
+                    tar -xzf ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}.tar.gz && \\
+                    sudo mv ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}/rg /usr/local/bin/ && \\
+                    rm -rf ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}*"""
+                ],
+            ),
+            'tokei': Tool(
+                depends_on=['curl', 'tar'],
+                setup=[
+                    f"""curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v{v['tokei']}/tokei-{arch['tokei_arch']}.tar.gz && \\
+                    tar -xzf tokei-{arch['tokei_arch']}.tar.gz && \\
+                    sudo mv tokei /usr/local/bin/ && rm tokei-{arch['tokei_arch']}.tar.gz"""
+                ],
+            ),
+            'eza': Tool(
+                depends_on=['curl', 'tar'],
+                setup=[
+                    f"""curl -L https://github.com/eza-community/eza/releases/download/{v['eza']}/eza_{arch['eza_target']}.tar.gz | tar -xz -C /tmp && \\
+                    sudo mv /tmp/eza /usr/local/bin/"""
+                ],
+            ),
+            'kubectl': Tool(
+                depends_on=['curl'],
+                setup=[
+                    f"""curl -LO https://dl.k8s.io/release/{v['kubectl']}/bin/linux/{arch['kubectl_arch']}/kubectl && \\
+                    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl"""
+                ],
+            ),
+            'ssh': Tool(
+                depends_on=['openssh'],
+                setup=[
                     """sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \\
                     sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \\
                     sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config && \\
                     sudo ssh-keygen -A"""
                 ],
-            },
-            'optional': {'setup': [distro_config['optional_packages']]},
-            'neovim': {
-                'prepare': [distro_config['curl_install']],
-                'setup': [
-                    f"""curl -LO https://github.com/neovim/neovim/releases/download/v{self.versions['neovim']}/nvim-linux-{self.current_arch_map['nvim_arch']}.tar.gz && \\
-                        sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{self.current_arch_map['nvim_arch']}.tar.gz && \\
-                        sudo ln -sf /opt/nvim-linux-{self.current_arch_map['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
-                        rm nvim-linux-{self.current_arch_map['nvim_arch']}.tar.gz"""
-                ],
-            },
-            'go': {
-                'prepare': [distro_config['curl_install']],
-                'setup': [
-                    f"""curl -LO https://go.dev/dl/{self.versions['go']}.linux-{self.current_arch_map['go_arch']}.tar.gz && \\
-                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {self.versions['go']}.linux-{self.current_arch_map['go_arch']}.tar.gz && \\
-                    rm {self.versions['go']}.linux-{self.current_arch_map['go_arch']}.tar.gz && \\
-                    echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc && \\
-                    source $HOME/.bashrc""",
-                ],
-                'env': [{'PATH': '$PATH:/usr/local/go/bin'}],
-            },
-            'pnpm': {
-                'setup': [f'curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={self.versions["pnpm"]} sh -']
-            },
-            'sdkman': {
-                'prepare': [distro_config['curl_install']],
-                'setup': [
-                    'curl -s "https://get.sdkman.io" | bash',
-                ],
-            },
-            'docker': {'setup': [distro_config['docker_install']]},
-            'cleanup': {'setup': distro_config['cleanup']},
+            ),
+            'docker': Tool(
+                depends_on=['curl'],
+                setup=[pkg.docker_install_cmd()],
+            ),
+            'dotfiles': Tool(
+                depends_on=['python'],
+                copy=[{'source': '.', 'destination': '.dotfiles/'}],
+                setup=[
+                    'ls ~/.dotfiles/',
+                    f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync --source-dir=~/.dotfiles/ --profile={self.profile}',
+                ]
+                if self.profile
+                else [],
+            ),
         }
 
         if self.profile and self.profile in self.PROFILES:
             profile_data = self.PROFILES[self.profile]
-            tools_to_include = profile_data.get('tools')
-            filtered_conf = {}
-            if tools_to_include:
-                for tool in tools_to_include:
-                    if tool in all_tools:
-                        filtered_conf[tool] = all_tools[tool]
-
-            if 'init' not in filtered_conf and 'init' in all_tools:
-                filtered_conf['init'] = all_tools['init']
-
-            return filtered_conf
+            tools_to_include = profile_data.get('tools', [])
+            resolved_order = resolve_dependencies(all_tools, tools_to_include)
+            return {name: all_tools[name] for name in resolved_order}
 
         return all_tools
 
@@ -499,64 +695,42 @@ class DockerfileBuilder:
     def __init__(self, config: DevEnvironmentConfig) -> None:
         self.config = config
         self.tools = config.conf
-        self._registered_commands: list[str] = []
         self.docker_template = self._setup_docker_template()
 
     def _setup_docker_template(self) -> DockerfileTemplate:
         base_template = DockerfileTemplate(textwrap.dedent(self.DOCKERFILE_BASE_TEMPLATE).strip())
+        cfg = self.config.current_distro_config
 
-        if self.config.distro == 'rpm':
-            return DockerfileTemplate(
-                base_template.safe_substitute(
-                    base_image=self.config.current_distro_config['base_image'],
-                    mirror_configure=self.config.current_distro_config.get('mirror_configure', 'true'),
-                    update='dnf update -y',
-                    install_sudo='dnf install -y sudo',
-                    username=self.config.username,
-                    workdir='/home/$USERNAME',
-                )
+        return DockerfileTemplate(
+            base_template.safe_substitute(
+                base_image=cfg.base_image,
+                mirror_configure=cfg.mirror_config(),
+                update=cfg.pkg_update,
+                install_sudo=cfg.install_nosudo('sudo'),
+                username=self.config.username,
+                workdir='/home/$USERNAME',
             )
-        elif self.config.distro == 'deb':
-            return DockerfileTemplate(
-                base_template.safe_substitute(
-                    base_image=self.config.current_distro_config['base_image'],
-                    mirror_configure=self.config.current_distro_config.get('mirror_configure', 'true'),
-                    update='apt update && apt upgrade -y',
-                    install_sudo='apt install -y sudo',
-                    username=self.config.username,
-                    workdir='/home/$USERNAME',
-                )
-            )
-        else:
-            raise ValueError(f'unsupported distro: {self.config.distro}')
+        )
 
-    def build_tool_stage(self, name: str, tool: dict) -> str:
+    def build_tool_stage(self, name: str, tool: Tool) -> str:
         buf = io.StringIO()
         buf.write(f'# stage: {shlex.quote(name)}\n')
 
-        if tool.get('env'):
+        if tool.env:
             buf.write(f'# setting Env for {name}\n')
-            for cmd in tool['env']:
+            for cmd in tool.env:
                 for key, val in cmd.items():
                     buf.write(f'ENV {key}={val}\n')
             buf.write('\n')
 
-        if tool.get('prepare'):
-            buf.write(f'# preparation for {name}\n')
-            for cmd in tool['prepare']:
-                if cmd in self._registered_commands:
-                    continue
-                self._registered_commands.append(cmd)
-                buf.write(f'RUN {cmd}\n')
-            buf.write('\n')
-
-        if tool.get('copy'):
+        if tool.copy:
             buf.write(f'# file copy for {name}\n')
-            for f in tool['copy']:
+            for f in tool.copy:
                 buf.write(f'COPY --chown=$USERNAME:$USERNAME {f["source"]} {f["destination"]}\n')
-        if tool.get('setup'):
+
+        if tool.setup:
             buf.write(f'# setup for {name}\n')
-            for cmd in tool['setup']:
+            for cmd in tool.setup:
                 buf.write(f'RUN {normalize_indent_after_first_line(cmd)}\n')
             buf.write('\n')
 
@@ -606,30 +780,20 @@ class SetupShBuilder:
         self.config = config
         self.tools = config.conf
 
-    def build_tool_function(self, name: str, tool: dict) -> str:
+    def build_tool_function(self, name: str, tool: Tool) -> str:
         buf = io.StringIO()
         buf.write(f'function {name} {{\n')
 
-        if tool.get('prepare'):
-            buf.write(f'    # preparation for {name}\n')
-            for cmd in tool['prepare']:
-                buf.write(f'    {cmd}\n')
-
-        if tool.get('copy'):
+        if tool.copy:
             buf.write(f'    # file copy for {name}\n')
-            for f in tool['copy']:
+            for f in tool.copy:
                 buf.write(f'    mkdir -p $(dirname {shlex.quote(f["destination"])})\n')
                 buf.write(f'    cp {shlex.quote(f["source"])} {shlex.quote(f["destination"])}\n')
 
-        if tool.get('setup'):
+        if tool.setup:
             buf.write(f'    # setup for {name}\n')
-            for cmd in tool['setup']:
+            for cmd in tool.setup:
                 buf.write(f'    {normalize_indent_after_first_line(cmd, indent=8)}\n')
-
-        if tool.get('validation'):
-            buf.write(f'    # validation for {name}\n')
-            for check in tool['validation']:
-                buf.write(f'    {check}\n')
 
         buf.write('}\n')
         return buf.getvalue()
@@ -829,11 +993,7 @@ class ImageBuilder:
     def _cleanup_dangling_images(self):
         try:
             logger.debug('Cleaning up dangling images...')
-            result = subprocess.run(
-                ['docker', 'image', 'prune', '-f'],
-                capture_output=True,
-                text=True
-            )
+            result = subprocess.run(['docker', 'image', 'prune', '-f'], capture_output=True, text=True)
             if result.returncode == 0 and result.stdout.strip():
                 logger.info('Cleaned up dangling images')
                 logger.debug(f'Cleanup output: {result.stdout.strip()}')
@@ -1040,7 +1200,7 @@ class CommandHandler:
 
         # This call will replace the current Python process with the Docker command
         # and never return - the user will be dropped directly into the container
-        DevContainerManager.start(image_name, self.args.name, config.get_profile_data().get('docker', {}), config.host_arch)
+        DevContainerManager.start(image_name, self.args.name, config.get_profile_data(), config.host_arch)
 
     def handle_build(self) -> None:
         if self.args.profile not in DevEnvironmentConfig.PROFILES:
@@ -1075,14 +1235,18 @@ class CommandHandler:
         DevContainerManager.list_deployments()
 
     def handle_rm(self) -> None:
-        DevContainerManager.stop(self.args.name)
-        success = DevContainerManager.remove(self.args.name)
+        for name in self.args.names:
+            logger.info(f"removing container '{name}'...")
+            DevContainerManager.stop(name)
+            success = DevContainerManager.remove(name)
 
-        if success and hasattr(self.args, 'volumes') and self.args.volumes:
-            DevContainerManager.remove_volumes(self.args.name)
+            if success and hasattr(self.args, 'volumes') and self.args.volumes:
+                DevContainerManager.remove_volumes(name)
 
-        if not success:
-            logger.error(f"failed to remove container '{self.args.name}'")
+            if not success:
+                logger.error(f"failed to remove container '{name}'")
+            else:
+                logger.info(f"successfully removed '{name}'")
 
     def handle_shell(self) -> None:
         container_name = self.args.name
@@ -1182,8 +1346,8 @@ def main() -> None:
     subparsers.add_parser('ls', help='list containers')
 
     # rm command args
-    rm_parser = subparsers.add_parser('rm', help='remove container')
-    rm_parser.add_argument('name', help='container name')
+    rm_parser = subparsers.add_parser('rm', help='remove container(s)')
+    rm_parser.add_argument('names', nargs='+', help='container name(s) to remove')
     rm_parser.add_argument('--volumes', action='store_true', help='also delete volumes')
 
     # shell command args
@@ -1195,20 +1359,19 @@ def main() -> None:
 
     if args.command is None:
         parser.print_help()
-        print("\navailable profiles:")
+        print('\navailable profiles:')
         for profile_name, profile_data in DevEnvironmentConfig.PROFILES.items():
-            print(f"- {profile_name}:")
-            if 'docker' in profile_data:
-                docker = profile_data['docker']
-                base_image = docker.get('base_image', 'default')
-                distro = docker.get('distro', 'unknown')
-                print(f"  docker: {base_image} on {distro}")
+            print(f'- {profile_name}:')
+            if 'distro' in profile_data:
+                distro = profile_data['distro']
+                base_image = DevEnvironmentConfig.DISTROS[distro].base_image
+                print(f'  distro: {distro} ({base_image})')
             if 'tools' in profile_data:
                 tools = profile_data['tools']
-                print(f"  tools: {', '.join(tools)}")
+                print(f'  tools: {", ".join(tools)}')
             if 'dotfiles' in profile_data:
                 dotfiles = profile_data['dotfiles']
-                print(f"  dotfiles: {len(dotfiles)} files")
+                print(f'  dotfiles: {len(dotfiles)} files')
             print()
         return
 
