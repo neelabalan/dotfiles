@@ -13,40 +13,23 @@ import sys
 
 
 class CleanupItem(abc.ABC):
+    name: str
+    description: str
+    size: int | None = None
+
     @abc.abstractmethod
     def clean(self, dry_run: bool = False) -> bool:
         pass
 
-    @property
-    @abc.abstractmethod
-    def name(self) -> str:
-        pass
 
-    @property
-    @abc.abstractmethod
-    def description(self) -> str:
-        pass
-
-    @property
-    def size(self) -> int | None:
-        return None
-
-
-@dataclasses.dataclass
 class PathCleanupItem(CleanupItem):
-    path: pathlib.Path
-    _description: str
+    def __init__(self, path: pathlib.Path, description: str):
+        self.path = path
+        self.name = str(path)
+        self.description = description
 
     @property
-    def name(self) -> str:
-        return str(self.path)
-
-    @property
-    def description(self) -> str:
-        return self._description
-
-    @property
-    def size(self) -> int | None:
+    def size(self) -> int:
         return get_folder_size(self.path) if self.path.exists() else 0
 
     def clean(self, dry_run: bool = False) -> bool:
@@ -58,19 +41,13 @@ class PathCleanupItem(CleanupItem):
         return False
 
 
-@dataclasses.dataclass
 class CommandCleanupItem(CleanupItem):
-    _name: str
-    _description: str
-    command: list[str]
+    size = None
 
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def description(self) -> str:
-        return self._description
+    def __init__(self, name: str, description: str, command: list[str]):
+        self.name = name
+        self.description = description
+        self.command = command
 
     def clean(self, dry_run: bool = False) -> bool:
         if dry_run:
@@ -94,19 +71,17 @@ class CleanupResult:
 
 class Cleaner(abc.ABC):
     registry: dict[str, type['Cleaner']] = {}
+    name: str = ''
 
     def __init_subclass__(cls, name: str | None = None, **kwargs):
         super().__init_subclass__(**kwargs)
         if name:
+            cls.name = name
             cls.registry[name] = cls
 
     def __init__(self, dry_run: bool = False, auto_confirm: bool = False):
         self.dry_run = dry_run
         self.auto_confirm = auto_confirm
-
-    @abc.abstractmethod
-    def get_name(self) -> str:
-        pass
 
     @abc.abstractmethod
     def scan(self) -> list[CleanupItem]:
@@ -121,7 +96,7 @@ class Cleaner(abc.ABC):
 
         items = self.scan()
         if not items:
-            logging.info(f'{self.get_name()}: nothing to clean')
+            logging.info(f'{self.name}: nothing to clean')
             return CleanupResult()
 
         path_items = [i for i in items if isinstance(i, PathCleanupItem)]
@@ -131,7 +106,7 @@ class Cleaner(abc.ABC):
         size_summary = format_size(total_size) if path_items else ''
         if command_items:
             size_summary += f'{" + " if size_summary else ""}{len(command_items)} command(s)'
-        logging.info(f'{self.get_name()}: found {len(items)} items ({size_summary})')
+        logging.info(f'{self.name}: found {len(items)} items ({size_summary})')
 
         for item in items:
             size_str = f' ({format_size(item.size)})' if item.size is not None else ''
@@ -182,9 +157,6 @@ class PythonCleaner(Cleaner, PathScanMixin, name='python'):
         super().__init__(dry_run, auto_confirm)
         self.base_path = base_path
 
-    def get_name(self) -> str:
-        return 'Python'
-
     def can_handle(self) -> bool:
         indicators = ['requirements.txt', 'setup.py', 'pyproject.toml', 'Pipfile']
         return any((self.base_path / f).exists() for f in indicators) or list(self.base_path.rglob('*.py'))
@@ -222,9 +194,6 @@ class NodeCleaner(Cleaner, PathScanMixin, name='node'):
         super().__init__(dry_run, auto_confirm)
         self.base_path = base_path
 
-    def get_name(self) -> str:
-        return 'Node'
-
     def can_handle(self) -> bool:
         return (self.base_path / 'package.json').exists()
 
@@ -251,9 +220,6 @@ class RustCleaner(Cleaner, PathScanMixin, name='rust'):
         super().__init__(dry_run, auto_confirm)
         self.base_path = base_path
 
-    def get_name(self) -> str:
-        return 'Rust'
-
     def can_handle(self) -> bool:
         return (self.base_path / 'Cargo.toml').exists()
 
@@ -271,9 +237,6 @@ class DockerCleaner(Cleaner, name='docker'):
     def __init__(self, dry_run: bool = False, auto_confirm: bool = False, types: list[str] | None = None):
         super().__init__(dry_run, auto_confirm)
         self.types = [t for t in (types or self.ALL_TYPES) if t in self.ALL_TYPES]
-
-    def get_name(self) -> str:
-        return 'Docker'
 
     def can_handle(self) -> bool:
         return shutil.which('docker') is not None
@@ -296,9 +259,6 @@ class PodmanCleaner(Cleaner, name='podman'):
         super().__init__(dry_run, auto_confirm)
         self.types = [t for t in (types or self.ALL_TYPES) if t in self.ALL_TYPES]
 
-    def get_name(self) -> str:
-        return 'Podman'
-
     def can_handle(self) -> bool:
         return shutil.which('podman') is not None
 
@@ -314,9 +274,6 @@ class PodmanCleaner(Cleaner, name='podman'):
 class BrewCleaner(Cleaner, name='brew'):
     def __init__(self, dry_run: bool = False, auto_confirm: bool = False, types: list[str] | None = None):
         super().__init__(dry_run, auto_confirm)
-
-    def get_name(self) -> str:
-        return 'Homebrew'
 
     def can_handle(self) -> bool:
         return shutil.which('brew') is not None
