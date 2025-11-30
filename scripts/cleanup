@@ -10,6 +10,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import typing
 
 
 class CleanupItem(abc.ABC):
@@ -78,7 +79,7 @@ class Cleaner(abc.ABC):
     registry: dict[str, type['Cleaner']] = {}
     name: str = ''
 
-    def __init_subclass__(cls, name: str | None = None, **kwargs):
+    def __init_subclass__(cls, name: str | None = None, **kwargs: typing.Any) -> None:
         super().__init_subclass__(**kwargs)
         if name:
             cls.name = name

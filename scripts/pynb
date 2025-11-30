@@ -5,6 +5,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import typing
 
 CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.pynb.json'
 
@@ -33,13 +34,13 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config() -> dict[str, dict]:
+def load_config() -> dict[str, typing.Any]:
     if not CONFIG_PATH.exists():
         return DEFAULT_CONFIG
 
     try:
         with open(CONFIG_PATH) as f:
-            config = json.load(f)
+            config: dict[str, typing.Any] = json.load(f)
         if 'profiles' not in config:
             return DEFAULT_CONFIG
         return config
@@ -47,7 +48,7 @@ def load_config() -> dict[str, dict]:
         return DEFAULT_CONFIG
 
 
-def save_config(config: dict) -> None:
+def save_config(config: dict[str, typing.Any]) -> None:
     config_path = CONFIG_PATH
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
