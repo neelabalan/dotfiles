@@ -1315,11 +1315,49 @@ class CommandHandler:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='development Environment Manager')
+    parser = argparse.ArgumentParser(
+        description='Development environment manager using containers',
+        epilog="""
+Commands:
+  spin      Build (if needed) and start an interactive container from a profile
+  build     Build container image from a profile without starting it
+  craft     Generate Dockerfile from a profile without building
+  ls        List all devenv containers (running and stopped)
+  rm        Remove one or more devenv containers
+  shell     Open a shell in an existing container
+  dotsync   Sync dotfiles to home directory based on profile configuration
+
+Profiles:
+  workstation        Full development environment (x86_64) with Python, Node,
+                     Rust, Go, Neovim, and common CLI tools
+  workstation-arm    Same as workstation but for ARM64 architecture
+  python-minimal     Lightweight Python environment with essential tools
+  python-minimal-arm Same as python-minimal but for ARM64 architecture
+  ml-cuda            CUDA-enabled environment for machine learning
+  just-dotfiles      Only dotfiles sync, no container tools
+
+Examples:
+  %(prog)s spin                                    Start workstation container
+  %(prog)s spin --profile python-minimal           Start minimal Python environment
+  %(prog)s spin --profile workstation --name dev   Start with custom container name
+  %(prog)s build --profile workstation             Build image without starting
+  %(prog)s craft --profile workstation             Generate Dockerfile only
+  %(prog)s ls                                      List all devenv containers
+  %(prog)s shell mycontainer                       Shell into existing container
+  %(prog)s rm mycontainer                          Remove a container
+  %(prog)s rm container1 container2 --volumes      Remove containers and volumes
+  %(prog)s dotsync --profile just-dotfiles         Sync dotfiles to home directory
+
+Environment:
+  DEBUG=1            Enable debug logging with file output to ~/.dotfiles/.logs/dnv/
+  CONTAINER_ENGINE   Override container engine detection (docker or podman)
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest='command', help='available commands')
 
     # spin command args
-    spin_parser = subparsers.add_parser('spin', help='spin up development environment')
+    spin_parser = subparsers.add_parser('spin', help='build and start interactive container')
     spin_parser.add_argument(
         '--profile',
         default='workstation',
