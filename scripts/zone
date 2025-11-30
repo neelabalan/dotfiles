@@ -34,7 +34,11 @@ opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_j
 
 def init_cookies() -> None:
     request = urllib.request.Request('https://mubert.com', headers=headers)
-    opener.open(request)
+    try:
+        opener.open(request)
+    except urllib.error.URLError as e:
+        print(f'error: failed to connect to mubert.com: {e.reason}')
+        sys.exit(1)
 
 
 def get_streams() -> dict[str, typing.Any]:
@@ -51,9 +55,13 @@ def get_streams() -> dict[str, typing.Any]:
         headers=headers,
         method='POST',
     )
-    with opener.open(request) as response:
-        fetched: dict[str, typing.Any] = json.load(response)
-        return fetched
+    try:
+        with opener.open(request) as response:
+            fetched: dict[str, typing.Any] = json.load(response)
+            return fetched
+    except urllib.error.URLError as e:
+        print(f'error: failed to fetch streams: {e.reason}')
+        sys.exit(1)
 
 
 def extract_url_names(response: dict[str, typing.Any]) -> dict[str, str]:
@@ -125,20 +133,24 @@ def run() -> None:
 
     print(f'streaming: {stream}')
     fd, filename = tempfile.mkstemp(suffix='.mp3')
+    filepath = pathlib.Path(filename)
+    os.close(fd)
     try:
         download = threading.Thread(target=download_stream, args=(filename, data.get(stream)), daemon=True)
         download.start()
         for _ in range(15):
             time.sleep(1)
-            size = os.path.getsize(filename)
-            if size > 128 * 1024:
+            if filepath.stat().st_size > 128 * 1024:
                 break
-        if os.path.getsize(filename) == 0:
+        if filepath.stat().st_size == 0:
             print('error: failed to download stream')
             sys.exit(1)
         subprocess.run(player + [filename])
     except (KeyboardInterrupt, SystemExit):
         pass
+    finally:
+        if filepath.exists():
+            filepath.unlink()
 
 
 if __name__ == '__main__':
