@@ -17,8 +17,6 @@ import textwrap
 import time
 import typing
 
-DEBUG_ENABLED = os.environ.get('DEBUG') in ('1', 'TRUE', 'true')
-
 
 class ContainerEngine:
     _cached_engine: str | None = None
@@ -97,7 +95,7 @@ class DistroConfig:
 
 
 class DebianDistroConfig(DistroConfig):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name='debian',
             pkg_format='deb',
@@ -149,7 +147,7 @@ class RpmDistroConfig(DistroConfig):
 
 
 class AlmaDistroConfig(RpmDistroConfig):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name='alma',
             pkg_format='rpm',
@@ -161,7 +159,7 @@ class AlmaDistroConfig(RpmDistroConfig):
 
 
 class FedoraDistroConfig(RpmDistroConfig):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name='fedora',
             pkg_format='rpm',
@@ -173,7 +171,7 @@ class FedoraDistroConfig(RpmDistroConfig):
 
 
 class CudaDistroConfig(RpmDistroConfig):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name='cuda',
             pkg_format='rpm',
@@ -210,27 +208,36 @@ def resolve_dependencies(tools: dict[str, Tool], selected: list[str]) -> list[st
     return resolved
 
 
-def _init_logger():
-    LOGS_BASE_DIR = pathlib.Path.home() / '.dotfiles' / '.devenv' / 'logs'
-    LOGS_BASE_DIR.mkdir(parents=True, exist_ok=True)
-    MAIN_LOG_FILE = LOGS_BASE_DIR / 'dnv.log'
+def _init_logger() -> logging.Logger:
+    debug_enabled = os.environ.get('DEBUG', '').lower() in ('1', 'true')
+    level = logging.DEBUG if debug_enabled else logging.INFO
 
-    level = logging.DEBUG if DEBUG_ENABLED else logging.INFO
     logger = logging.getLogger('dnv')
     if logger.handlers:
         logger.setLevel(level)
+        for handler in logger.handlers:
+            handler.setLevel(level)
         return logger
+
     logger.setLevel(level)
+    logger.propagate = False
     fmt = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    ch.setLevel(level)
-    fh = logging.FileHandler(MAIN_LOG_FILE, encoding='utf-8')
-    fh.setFormatter(fmt)
-    fh.setLevel(level)
-    logger.addHandler(ch)
-    logger.addHandler(fh)
-    logger.debug('logger initialized (level=%s) file=%s', logging.getLevelName(level), MAIN_LOG_FILE)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(fmt)
+    console_handler.setLevel(level)
+    logger.addHandler(console_handler)
+
+    if debug_enabled:
+        log_dir = pathlib.Path.home() / '.dotfiles' / '.logs' / 'dnv'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f'dnv_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(fmt)
+        file_handler.setLevel(level)
+        logger.addHandler(file_handler)
+        logger.debug('logger initialized (level=%s) file=%s', logging.getLevelName(level), log_file)
+
     return logger
 
 
@@ -462,7 +469,7 @@ class DevEnvironmentConfig:
         self._setup_distro_config()
         self.conf = self._generate_conf()
 
-    def get_profile_data(self) -> dict:
+    def get_profile_data(self) -> dict[str, typing.Any]:
         if self.profile and self.profile in self.PROFILES:
             return self.PROFILES[self.profile]
         return {}
@@ -723,20 +730,20 @@ class DockerfileBuilder:
 
         if tool.env:
             buf.write(f'# setting Env for {name}\n')
-            for cmd in tool.env:
-                for key, val in cmd.items():
+            for env_item in tool.env:
+                for key, val in env_item.items():
                     buf.write(f'ENV {key}={val}\n')
             buf.write('\n')
 
         if tool.copy:
             buf.write(f'# file copy for {name}\n')
-            for f in tool.copy:
-                buf.write(f'COPY --chown=$USERNAME:$USERNAME {f["source"]} {f["destination"]}\n')
+            for copy_item in tool.copy:
+                buf.write(f'COPY --chown=$USERNAME:$USERNAME {copy_item["source"]} {copy_item["destination"]}\n')
 
         if tool.setup:
             buf.write(f'# setup for {name}\n')
-            for cmd in tool.setup:
-                buf.write(f'RUN {normalize_indent_after_first_line(cmd)}\n')
+            for setup_cmd in tool.setup:
+                buf.write(f'RUN {normalize_indent_after_first_line(setup_cmd)}\n')
             buf.write('\n')
 
         return buf.getvalue()
@@ -901,7 +908,9 @@ class ImageBuilder:
 
     def _image_exists(self, image_name: str) -> bool:
         return bool(
-            subprocess.run(ContainerEngine.cmd('images', '-q', image_name), capture_output=True, text=True).stdout.strip()
+            subprocess.run(
+                ContainerEngine.cmd('images', '-q', image_name), capture_output=True, text=True
+            ).stdout.strip()
         )
 
     def _dockerfile_is_newer(self, dockerfile_path: pathlib.Path, image_name: str) -> bool:
@@ -957,7 +966,7 @@ class ImageBuilder:
         if self.arch:
             build_cmd.extend(get_docker_platform_flag(self.arch))
 
-        if DEBUG_ENABLED:
+        if logger.isEnabledFor(logging.DEBUG):
             build_cmd.extend(['--progress=plain', '--no-cache'])
 
         build_cmd.append(str(dotfiles_dir))
@@ -965,18 +974,20 @@ class ImageBuilder:
 
         artifact_repo = ArtifactRepository()
 
-        if DEBUG_ENABLED:
-            # Debug mode - show live output, don't capture
+        stdout_output: str
+        stderr_output: str
+        returncode: int
+
+        if logger.isEnabledFor(logging.DEBUG):
             logger.info(f'Debug mode: showing verbose {ContainerEngine.engine()} build output...')
-            build_result = subprocess.run(build_cmd, cwd=str(dotfiles_dir))
-            returncode = build_result.returncode
+            debug_result = subprocess.run(build_cmd, cwd=str(dotfiles_dir))
+            returncode = debug_result.returncode
             stdout_output = stderr_output = 'Live output shown above'
         else:
-            # Standard mode - capture all output
-            build_result = subprocess.run(build_cmd, capture_output=True, text=True, cwd=str(dotfiles_dir))
-            returncode = build_result.returncode
-            stdout_output = build_result.stdout
-            stderr_output = build_result.stderr
+            text_result = subprocess.run(build_cmd, capture_output=True, text=True, cwd=str(dotfiles_dir))
+            returncode = text_result.returncode
+            stdout_output = text_result.stdout
+            stderr_output = text_result.stderr
 
         log_content = (
             f'Command: {" ".join(build_cmd)}\n'
@@ -994,7 +1005,7 @@ class ImageBuilder:
         self._cleanup_dangling_images()
         return True
 
-    def _cleanup_dangling_images(self):
+    def _cleanup_dangling_images(self) -> None:
         try:
             logger.debug('cleaning up dangling images...')
             result = subprocess.run(ContainerEngine.image_prune_cmd(), capture_output=True, text=True)
@@ -1018,7 +1029,7 @@ class DevContainerManager:
         return result.returncode == 0 and result.stdout.strip() == 'true'
 
     @staticmethod
-    def start(image_name: str, name: str | None, docker_config: dict, arch: str | None = None) -> str | None:
+    def start(image_name: str, name: str | None, docker_config: dict[str, typing.Any], arch: str | None = None) -> None:
         cmd = ContainerEngine.cmd('run', '-it', '--label', 'devenv=true')
 
         # Add platform flag if cross-platform run is needed
@@ -1064,7 +1075,7 @@ class DevContainerManager:
             return False
 
     @staticmethod
-    def exec_command(container_id: str, command: list[str]) -> subprocess.CompletedProcess:
+    def exec_command(container_id: str, command: list[str]) -> subprocess.CompletedProcess[bytes]:
         if not container_id:
             raise RuntimeError('container not started')
         return subprocess.run(ContainerEngine.cmd('exec', '-it', container_id, *command))
@@ -1138,7 +1149,7 @@ class DevContainerManager:
         return False
 
     @staticmethod
-    def list_deployments() -> list[dict]:
+    def list_deployments() -> list[dict[str, typing.Any]]:
         result = subprocess.run(
             ContainerEngine.cmd(
                 'ps',
@@ -1286,7 +1297,7 @@ class CommandHandler:
 
             DotfilesManager().install_dotfiles(profile_data['dotfiles'], self.args.source_dir)
 
-    def handle(self):
+    def handle(self) -> None:
         match self.args.command:
             case 'build':
                 self.handle_build()
@@ -1307,11 +1318,49 @@ class CommandHandler:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='development Environment Manager')
+    parser = argparse.ArgumentParser(
+        description='Development environment manager using containers',
+        epilog="""
+Commands:
+  spin      Build (if needed) and start an interactive container from a profile
+  build     Build container image from a profile without starting it
+  craft     Generate Dockerfile from a profile without building
+  ls        List all devenv containers (running and stopped)
+  rm        Remove one or more devenv containers
+  shell     Open a shell in an existing container
+  dotsync   Sync dotfiles to home directory based on profile configuration
+
+Profiles:
+  workstation        Full development environment (x86_64) with Python, Node,
+                     Rust, Go, Neovim, and common CLI tools
+  workstation-arm    Same as workstation but for ARM64 architecture
+  python-minimal     Lightweight Python environment with essential tools
+  python-minimal-arm Same as python-minimal but for ARM64 architecture
+  ml-cuda            CUDA-enabled environment for machine learning
+  just-dotfiles      Only dotfiles sync, no container tools
+
+Examples:
+  %(prog)s spin                                    Start workstation container
+  %(prog)s spin --profile python-minimal           Start minimal Python environment
+  %(prog)s spin --profile workstation --name dev   Start with custom container name
+  %(prog)s build --profile workstation             Build image without starting
+  %(prog)s craft --profile workstation             Generate Dockerfile only
+  %(prog)s ls                                      List all devenv containers
+  %(prog)s shell mycontainer                       Shell into existing container
+  %(prog)s rm mycontainer                          Remove a container
+  %(prog)s rm container1 container2 --volumes      Remove containers and volumes
+  %(prog)s dotsync --profile just-dotfiles         Sync dotfiles to home directory
+
+Environment:
+  DEBUG=1            Enable debug logging with file output to ~/.dotfiles/.logs/dnv/
+  CONTAINER_ENGINE   Override container engine detection (docker or podman)
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest='command', help='available commands')
 
     # spin command args
-    spin_parser = subparsers.add_parser('spin', help='spin up development environment')
+    spin_parser = subparsers.add_parser('spin', help='build and start interactive container')
     spin_parser.add_argument(
         '--profile',
         default='workstation',

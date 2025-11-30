@@ -26,14 +26,14 @@ class ExecutionMode:
 class Config:
     CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.px.json'
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = self._load_config()
         self.workspace_root = pathlib.Path(self.config.get('workspace_root', '.'))
         self.editor = self.config.get('editor', 'code')
 
-    def _load_config(self) -> dict:
+    def _load_config(self) -> dict[str, typing.Any]:
         if self.CONFIG_PATH.exists():
-            return json.loads(self.CONFIG_PATH.read_text())
+            return json.loads(self.CONFIG_PATH.read_text())  # type: ignore[no-any-return]
 
         return {
             'workspace_root': str(pathlib.Path.home() / 'experiments'),
@@ -45,7 +45,7 @@ class Config:
             ],
         }
 
-    def _make_template_dict(self, current: dict) -> dict[str, str]:
+    def _make_template_dict(self, current: dict[str, typing.Any]) -> dict[str, str | None]:
         return {
             SOURCE_TEMPLATE: current.get(SOURCE_TEMPLATE, ''),
             TEST_TEMPLATE: current.get(TEST_TEMPLATE),
@@ -82,7 +82,7 @@ class Config:
                 )
 
     def _check_defaults_in_dirs(
-        self, dirs_config: dict, language: str, default_counts: dict, path_parts: list[str] | None = None
+        self, dirs_config: dict[str, typing.Any], language: str, default_counts: dict[str, int], path_parts: list[str] | None = None
     ) -> None:
         if path_parts is None:
             path_parts = []
@@ -100,7 +100,7 @@ class Config:
             if nested_dirs:
                 self._check_defaults_in_dirs(nested_dirs, language, default_counts, current_path)
 
-    def get_template_for_path(self, language: str, relative_path: pathlib.Path) -> typing.Optional[dict[str, str]]:
+    def get_template_for_path(self, language: str, relative_path: pathlib.Path) -> dict[str, str | None] | None:
         for part in relative_path.parts:
             if part and part[0].isdigit():
                 raise ValueError(f"directory names cannot start with digits: '{part}'")
@@ -153,7 +153,7 @@ class Config:
                 self._collect_dirs(dir_structure, base_path, result, language)
         return result
 
-    def _collect_dirs(self, dir_config: dict, prefix: pathlib.Path, result: dict, language: str):
+    def _collect_dirs(self, dir_config: dict[str, typing.Any], prefix: pathlib.Path, result: dict[str, list[pathlib.Path]], language: str) -> dict[str, list[pathlib.Path]]:
         for key, value in dir_config.items():
             if key in (DEFAULT, SOURCE_TEMPLATE, TEST_TEMPLATE):
                 continue
@@ -195,7 +195,7 @@ class LanguageHandler(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         pass
 
     @abc.abstractmethod
@@ -215,7 +215,7 @@ class PythonHandler(LanguageHandler):
             return path.suffix == '.py'
         return (path / 'pyproject.toml').exists() or any(path.glob('*.py'))
 
-    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         if mode == ExecutionMode.TEST:
             return subprocess.run(['uv', 'run', 'pytest', '-v', str(path)], capture_output=False)
         else:
@@ -277,7 +277,7 @@ class PythonHandler(LanguageHandler):
             ruff_path.write_text(ruff_content)
             print(f'created: {ruff_path}')
 
-    def _run_script(self, path: pathlib.Path) -> subprocess.CompletedProcess:
+    def _run_script(self, path: pathlib.Path) -> subprocess.CompletedProcess[bytes]:
         if not path.is_file():
             raise ValueError(f'{path} is not a file')
 
@@ -292,13 +292,13 @@ class RustHandler(LanguageHandler):
             return path.suffix == '.rs'
         return (path / 'Cargo.toml').exists()
 
-    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         if path.is_file():
             return self._run_single_file(path, mode)
         else:
             return self._run_cargo_project(path, mode)
 
-    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         cargo_root = self._find_cargo_root(path)
 
         if not cargo_root:
@@ -312,7 +312,7 @@ class RustHandler(LanguageHandler):
         else:
             raise NotImplementedError('run mode not supported for single Rust files')
 
-    def _run_cargo_project(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def _run_cargo_project(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         if mode == ExecutionMode.TEST:
             return subprocess.run(['cargo', 'test', '--', '--nocapture'], cwd=path, capture_output=False)
         else:
@@ -435,13 +435,13 @@ class GoHandler(LanguageHandler):
             return path.suffix == '.go'
         return (path / 'go.mod').exists()
 
-    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         if path.is_file():
             return self._run_single_file(path, mode)
         else:
             return self._run_go_module(path, mode)
 
-    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         go_mod_root = self._find_go_mod_root(path)
 
         if mode == ExecutionMode.TEST:
@@ -457,7 +457,7 @@ class GoHandler(LanguageHandler):
         else:
             return subprocess.run(['go', 'run', str(path)], capture_output=False)
 
-    def _run_go_module(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess:
+    def _run_go_module(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         if mode == ExecutionMode.TEST:
             return subprocess.run(['go', 'test', '-v', './...'], cwd=path, capture_output=False)
         else:
@@ -605,7 +605,7 @@ def create_file(config: Config, file_arg: str) -> int:
             print(f'error: no configuration found for path {relative_path.parent}', file=sys.stderr)
             return 1
 
-        source_template = template.get(SOURCE_TEMPLATE, '')
+        source_template = template.get(SOURCE_TEMPLATE) or ''
         test_template = template.get(TEST_TEMPLATE)
 
         LANGUAGE_HANDLER_MAP[language].create_files(full_path.with_suffix(''), source_template, test_template)
@@ -646,8 +646,39 @@ def open_folder(config: Config, language: typing.Optional[str] = None) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description='Unified test runner for multiple languages',
-        epilog='Examples:\n  %(prog)s test python/file.py\n  %(prog)s run python/file.py\n  %(prog)s init\n  %(prog)s create python/leetcode/001',
+        description='Unified project runner and scaffolding tool for multiple languages',
+        epilog="""
+Commands:
+  init      Initialize workspace directory structure from config file
+  validate  Validate the configuration file for errors
+  create    Create a new source file (and optional test file) from template
+  test      Run tests for a file or project
+  run       Execute a file or project
+  open      Open workspace or language folder in configured editor
+
+Supported Languages:
+  python    Uses uv for project management and pytest for testing
+  rust      Uses cargo for project management and testing
+  go        Uses go modules for project management and testing
+
+Configuration:
+  Config file location: ~/.dotfiles/.px.json
+  The config defines workspace structure, templates, and default directories
+  for each language. Each language can have multiple directories with custom
+  source and test templates.
+
+Examples:
+  %(prog)s init                                    Initialize workspace from config
+  %(prog)s validate                                Validate config file
+  %(prog)s create python/leetcode/solution.py     Create Python file from template
+  %(prog)s create rust/misc/problem.rs            Create Rust file from template
+  %(prog)s test python/solution.py                Run tests for Python file
+  %(prog)s test rust/problem.rs                   Run tests for Rust file
+  %(prog)s run python/script.py                   Execute Python script
+  %(prog)s run go/main.go                         Execute Go file
+  %(prog)s open                                   Open workspace root in editor
+  %(prog)s open python                            Open Python folder in editor
+        """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 

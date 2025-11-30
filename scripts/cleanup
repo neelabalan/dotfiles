@@ -10,6 +10,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import typing
 
 
 class CleanupItem(abc.ABC):
@@ -60,9 +61,9 @@ class CommandCleanupItem(CleanupItem):
         result = subprocess.run(self.command, capture_output=True, text=True)
         if result.returncode == 0:
             if result.stdout.strip():
-                logging.info(f'  {result.stdout.strip()}')
+                logger.info(f'  {result.stdout.strip()}')
             return True
-        logging.error(f'  {result.stderr.strip()}')
+        logger.error(f'  {result.stderr.strip()}')
         return False
 
 
@@ -78,7 +79,7 @@ class Cleaner(abc.ABC):
     registry: dict[str, type['Cleaner']] = {}
     name: str = ''
 
-    def __init_subclass__(cls, name: str | None = None, **kwargs):
+    def __init_subclass__(cls, name: str | None = None, **kwargs: typing.Any) -> None:
         super().__init_subclass__(**kwargs)
         if name:
             cls.name = name
@@ -101,7 +102,7 @@ class Cleaner(abc.ABC):
 
         items = self.scan()
         if not items:
-            logging.info(f'{self.name}: nothing to clean')
+            logger.info(f'{self.name}: nothing to clean')
             return CleanupResult()
 
         path_items = [i for i in items if isinstance(i, PathCleanupItem)]
@@ -111,17 +112,17 @@ class Cleaner(abc.ABC):
         size_summary = format_size(total_size) if path_items else ''
         if command_items:
             size_summary += f'{" + " if size_summary else ""}{len(command_items)} command(s)'
-        logging.info(f'{self.name}: found {len(items)} items ({size_summary})')
+        logger.info(f'{self.name}: found {len(items)} items ({size_summary})')
 
         for item in items:
             size_str = f' ({format_size(item.size)})' if item.size is not None else ''
-            logging.info(f'  {item.name}{size_str} - {item.description}')
+            logger.info(f'  {item.name}{size_str} - {item.description}')
 
         if not self.auto_confirm and not confirm_action(f'Clean {len(items)} items?'):
             return CleanupResult()
 
         if self.dry_run:
-            logging.info('DRY RUN: skipping actual cleanup')
+            logger.info('DRY RUN: skipping actual cleanup')
             return CleanupResult(success_count=len(items), size_freed=total_size)
 
         result = CleanupResult()
@@ -134,7 +135,7 @@ class Cleaner(abc.ABC):
                 else:
                     result.failure_count += 1
             except Exception as e:
-                logging.error(f'  Failed to clean {item.name}: {e}')
+                logger.error(f'  Failed to clean {item.name}: {e}')
                 result.errors.append(f'{item.name}: {e}')
                 result.failure_count += 1
 
@@ -307,26 +308,37 @@ class BrewCleaner(Cleaner, name='brew'):
         ]
 
 
-def setup_logging(verbose: bool = False) -> None:
-    debug_enabled = os.getenv('DEBUG', 'false').lower() == 'true' or verbose
+def _init_logger() -> logging.Logger:
+    debug_enabled = os.environ.get('DEBUG', '').lower() in ('1', 'true')
     level = logging.DEBUG if debug_enabled else logging.INFO
 
-    handlers: list[logging.Handler] = []
+    _logger = logging.getLogger('cleanup')
+    if _logger.handlers:
+        return _logger
+
+    _logger.setLevel(level)
+    _logger.propagate = False
+    fmt = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
 
     console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
-    console_handler.setFormatter(console_formatter)
-    handlers.append(console_handler)
+    console_handler.setFormatter(fmt)
+    console_handler.setLevel(level)
+    _logger.addHandler(console_handler)
 
     if debug_enabled:
-        log_dir = pathlib.Path.home() / '.cleanup' / 'logs'
+        log_dir = pathlib.Path.home() / '.dotfiles' / '.logs' / 'cleanup'
         log_dir.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_dir / f'cleanup_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
-        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(funcName)s - %(message)s')
-        file_handler.setFormatter(file_formatter)
-        handlers.append(file_handler)
+        log_file = log_dir / f'cleanup_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(fmt)
+        file_handler.setLevel(level)
+        _logger.addHandler(file_handler)
+        _logger.debug('logger initialized (level=%s) file=%s', logging.getLevelName(level), log_file)
 
-    logging.basicConfig(level=level, handlers=handlers, force=True)
+    return _logger
+
+
+logger = _init_logger()
 
 
 def get_folder_size(folder_path: pathlib.Path) -> int:
@@ -389,7 +401,7 @@ Examples:
   %(prog)s . --cleaners brew                       Clean Homebrew cache
 
 Environment:
-  DEBUG=true    Enable debug logging with file output to ~/.cleanup/logs/
+  DEBUG=1    Enable debug logging with file output to ~/.dotfiles/.logs/cleanup/
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -401,7 +413,6 @@ Environment:
         '--dry-run', '-n', action='store_true', help='Show what would be cleaned without actually deleting anything'
     )
     parser.add_argument('--yes', '-y', action='store_true', help='Skip confirmation prompts and clean immediately')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output with debug information')
     parser.add_argument(
         '--cleaners',
         '-c',
@@ -423,16 +434,15 @@ Environment:
         return
 
     args = parser.parse_args()
-    setup_logging(args.verbose)
 
     target_path = pathlib.Path(args.path).resolve()
 
     if not target_path.exists():
-        logging.error(f'path does not exist: {target_path}')
+        logger.error(f'path does not exist: {target_path}')
         sys.exit(1)
 
     if not target_path.is_dir():
-        logging.error(f'path is not a directory: {target_path}')
+        logger.error(f'path is not a directory: {target_path}')
         sys.exit(1)
 
     all_cleaners: dict[str, Cleaner] = {}
@@ -448,10 +458,10 @@ Environment:
         cleaners = [c for c in all_cleaners.values() if c.can_handle()]
 
     if not cleaners:
-        logging.info('no applicable cleaners found')
+        logger.info('no applicable cleaners found')
         sys.exit(1)
 
-    logging.info(f'target: {target_path}')
+    logger.info(f'target: {target_path}')
 
     total_freed = 0
     total_success = 0
@@ -467,9 +477,9 @@ Environment:
         summary = f'total: {total_success} items'
         if total_freed > 0:
             summary += f', {format_size(total_freed)} freed'
-        logging.info(summary)
+        logger.info(summary)
     if total_failures > 0:
-        logging.warning(f'failures: {total_failures}')
+        logger.warning(f'failures: {total_failures}')
 
 
 if __name__ == '__main__':

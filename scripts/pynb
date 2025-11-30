@@ -5,6 +5,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import typing
 
 CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.pynb.json'
 
@@ -33,13 +34,13 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config() -> dict[str, dict]:
+def load_config() -> dict[str, typing.Any]:
     if not CONFIG_PATH.exists():
         return DEFAULT_CONFIG
 
     try:
         with open(CONFIG_PATH) as f:
-            config = json.load(f)
+            config: dict[str, typing.Any] = json.load(f)
         if 'profiles' not in config:
             return DEFAULT_CONFIG
         return config
@@ -47,7 +48,7 @@ def load_config() -> dict[str, dict]:
         return DEFAULT_CONFIG
 
 
-def save_config(config: dict) -> None:
+def save_config(config: dict[str, typing.Any]) -> None:
     config_path = CONFIG_PATH
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -210,7 +211,40 @@ def open_project(profile: str, folder_name: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Python Notebook Project Manager')
+    parser = argparse.ArgumentParser(
+        description='Python Notebook project manager with uv',
+        epilog="""
+Commands:
+  init      Initialize or reset the configuration file with default profiles
+  new       Create a new notebook project with uv environment and dependencies
+  ls        List all notebook projects in a profile's directory
+  open      Open an existing notebook project in VS Code
+
+Profiles:
+  Profiles are defined in ~/.dotfiles/.pynb.json and specify:
+  - directory: Base directory for notebook projects
+  - python_version: Python version to use (e.g., 3.11)
+  - dependencies: List of packages to install (pandas, numpy, etc.)
+  - cells: Initial code cells to include in the notebook
+
+Default Profile:
+  The 'default' profile creates projects in ~/notebooks with Python 3.11
+  and common data science packages (pandas, numpy, matplotlib, requests)
+
+Examples:
+  %(prog)s init                                    Initialize config file
+  %(prog)s new my-analysis                         Create new project in default profile
+  %(prog)s new --profile ml experiment-01          Create project in 'ml' profile
+  %(prog)s ls                                      List projects in default profile
+  %(prog)s ls --profile ml                         List projects in 'ml' profile
+  %(prog)s open my-analysis                        Open project in VS Code
+  %(prog)s open --profile ml experiment-01         Open project from 'ml' profile
+
+Configuration:
+  Config file: ~/.dotfiles/.pynb.json
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest='command', help='available commands')
 
     subparsers.add_parser('init', help='initialize configuration file')
