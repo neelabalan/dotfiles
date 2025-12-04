@@ -158,6 +158,35 @@ class AlmaDistroConfig(RpmDistroConfig):
         )
 
 
+class AlmaMinimalDistroConfig(RpmDistroConfig):
+    def __init__(self) -> None:
+        super().__init__(
+            name='alma-minimal',
+            pkg_format='rpm',
+            base_image='almalinux:9-minimal',
+            pkg_install='sudo microdnf install -y',
+            pkg_install_flags='',
+            pkg_update='microdnf update -y',
+        )
+
+    def install(self, *packages: str) -> str:
+        filtered = [p for p in packages if p != 'curl']
+        if not filtered:
+            return 'true'
+        pkgs = ' '.join(filtered)
+        return f'{self.pkg_install} {pkgs}'
+
+    def docker_install_cmd(self) -> str:
+        return textwrap.dedent("""
+            sudo microdnf -y install dnf-plugins-core && \\
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \\
+            sudo microdnf install -y docker-ce-cli
+        """).strip()
+
+    def mirror_config(self) -> str:
+        return 'true'
+
+
 class FedoraDistroConfig(RpmDistroConfig):
     def __init__(self) -> None:
         super().__init__(
@@ -272,6 +301,7 @@ class DevEnvironmentConfig:
     DISTROS: dict[str, DistroConfig] = {
         'debian': DebianDistroConfig(),
         'alma': AlmaDistroConfig(),
+        'alma-minimal': AlmaMinimalDistroConfig(),
         'fedora': FedoraDistroConfig(),
         'cuda': CudaDistroConfig(),
     }
@@ -400,6 +430,36 @@ class DevEnvironmentConfig:
             'dotfiles': ['.bashrc', '.vimrc', '.gitconfig'],
             'tools': ['python', 'starship', 'neovim', 'dotfiles'],
         },
+        'workstation-minimal': {
+            'distro': 'alma-minimal',
+            'arch': 'x86_64',
+            'container_user': 'blue',
+            'volumes': [
+                {'source': '~/.ssh', 'target': '/home/blue/.ssh', 'mode': 'ro'},
+            ],
+            'tools': [
+                'python',
+                'rust',
+                'go',
+                'neovim',
+                'starship',
+                'fzf',
+                'ripgrep',
+                'eza',
+                'ipython',
+                'ranger',
+                'sysutils',
+                'ssh',
+                'dotfiles',
+            ],
+            'dotfiles': [
+                '.bashrc',
+                '.bash_profile',
+                '.config/starship.toml',
+                '.config/nvim',
+                '.tmux.conf',
+            ],
+        },
     }
 
     @classmethod
@@ -521,7 +581,7 @@ class DevEnvironmentConfig:
                 setup=[pkg.install('openssh-server')],
             ),
             'python': Tool(
-                depends_on=['curl'],
+                depends_on=['curl', 'tar'],
                 env=[{'PATH': '$HOME/.local/bin:$PATH'}],
                 setup=[f'curl -LsSf https://astral.sh/uv/{v["uv"]}/install.sh | sh && uv python install 3.11 3.13'],
             ),
