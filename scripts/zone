@@ -36,44 +36,29 @@ opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_j
 def generate_mat_cookies() -> None:
     mat_id = str(int(time.time() * 1000000) % 10000000000000000)
     mat = f'{uuid.uuid4().hex[:30]}.{int(time.time())}'
-    mat_cookie = http.cookiejar.Cookie(
-        version=0,
-        name='mat',
-        value=mat,
-        port=None,
-        port_specified=False,
-        domain='.mubert.com',
-        domain_specified=True,
-        domain_initial_dot=True,
-        path='/',
-        path_specified=True,
-        secure=False,
-        expires=None,
-        discard=True,
-        comment=None,
-        comment_url=None,
-        rest={},
-    )
-    mat_id_cookie = http.cookiejar.Cookie(
-        version=0,
-        name='mat_id',
-        value=mat_id,
-        port=None,
-        port_specified=False,
-        domain='.mubert.com',
-        domain_specified=True,
-        domain_initial_dot=True,
-        path='/',
-        path_specified=True,
-        secure=False,
-        expires=None,
-        discard=True,
-        comment=None,
-        comment_url=None,
-        rest={},
-    )
-    cookie_jar.set_cookie(mat_cookie)
-    cookie_jar.set_cookie(mat_id_cookie)
+
+    def make_cookie(name: str, value: str) -> http.cookiejar.Cookie:
+        return http.cookiejar.Cookie(
+            version=0,
+            name=name,
+            value=value,
+            port=None,
+            port_specified=False,
+            domain='.mubert.com',
+            domain_specified=True,
+            domain_initial_dot=True,
+            path='/',
+            path_specified=True,
+            secure=False,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest={},
+        )
+
+    cookie_jar.set_cookie(make_cookie('mat', mat))
+    cookie_jar.set_cookie(make_cookie('mat_id', mat_id))
 
 
 def init_cookies() -> None:
