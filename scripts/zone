@@ -3,6 +3,7 @@
 # original idea from https://github.com/mawoka-myblock/mubert
 # ctrl+c and ctrl+z to exit
 
+import argparse
 import http.cookiejar
 import json
 import os
@@ -106,8 +107,16 @@ def extract_url_names(response: dict[str, typing.Any]) -> dict[str, str]:
     return data
 
 
-def get_choice_of_stream(data: dict[str, str]) -> str | None:
+def get_choice_of_stream(data: dict[str, str], stream_number: int | None = None) -> str | None:
     names = list(data.keys())
+
+    if stream_number is not None:
+        idx = stream_number - 1
+        if 0 <= idx < len(names):
+            return names[idx]
+        print(f'error: invalid stream number {stream_number} (valid range: 1-{len(names)})')
+        return None
+
     print('available streams:')
     for idx, name in enumerate(names, 1):
         print(f'  {idx:2}. {name}')
@@ -145,7 +154,7 @@ def download_stream(filename: str, url: str) -> None:
             file.write(chunk)
 
 
-def run() -> None:
+def run(stream_number: int | None = None) -> None:
     player = find_player()
     if not player:
         print('error: no audio player found (mpv, afplay, ffplay, or cvlc)')
@@ -156,7 +165,7 @@ def run() -> None:
     init_cookies()
     response = get_streams()
     data = extract_url_names(response)
-    stream = get_choice_of_stream(data)
+    stream = get_choice_of_stream(data, stream_number)
 
     if not stream:
         return
@@ -188,4 +197,13 @@ if __name__ == '__main__':
         print('error: this script requires Python 3.11 or later')
         sys.exit(1)
 
-    run()
+    parser = argparse.ArgumentParser(description='Stream music from Mubert')
+    parser.add_argument(
+        '--stream',
+        type=int,
+        metavar='N',
+        help='stream number to play (bypasses interactive selection)',
+    )
+    args = parser.parse_args()
+
+    run(args.stream)
