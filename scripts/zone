@@ -73,9 +73,12 @@ def init_cookies() -> None:
 
 
 def get_streams() -> dict[str, typing.Any]:
-    jsonpath = pathlib.Path(__file__).parent / 'mubert.json'
-    if jsonpath.exists():
-        with open(str(jsonpath), 'r') as file:
+    cache_dir = pathlib.Path.home() / '.dotfiles' / '.cache'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / 'mubert.json'
+
+    if cache_file.exists():
+        with open(cache_file, 'r') as file:
             cached: dict[str, typing.Any] = json.load(file)
             return cached
 
@@ -89,6 +92,8 @@ def get_streams() -> dict[str, typing.Any]:
     try:
         with opener.open(request) as response:
             fetched: dict[str, typing.Any] = json.load(response)
+            with open(cache_file, 'w') as file:
+                json.dump(fetched, file, indent=2)
             return fetched
     except urllib.error.URLError as e:
         print(f'error: failed to fetch streams: {e.reason}')
