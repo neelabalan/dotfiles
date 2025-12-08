@@ -94,16 +94,14 @@ class DistroConfig:
         raise NotImplementedError('subclass must implement mirror_config')
 
 
+@dataclasses.dataclass
 class DebianDistroConfig(DistroConfig):
-    def __init__(self) -> None:
-        super().__init__(
-            name='debian',
-            pkg_format='deb',
-            base_image='debian:bookworm',
-            pkg_install='sudo apt install -y',
-            pkg_install_flags='',
-            pkg_update='apt update && apt upgrade -y',
-        )
+    name: str = 'debian'
+    pkg_format: str = 'deb'
+    base_image: str = 'debian:bookworm'
+    pkg_install: str = 'sudo apt install -y'
+    pkg_install_flags: str = ''
+    pkg_update: str = 'apt update && apt upgrade -y'
 
     def docker_install_cmd(self) -> str:
         return textwrap.dedent("""
@@ -146,28 +144,24 @@ class RpmDistroConfig(DistroConfig):
         return 'echo "fastestmirror=True" >> /etc/dnf/dnf.conf && echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf'
 
 
+@dataclasses.dataclass
 class AlmaDistroConfig(RpmDistroConfig):
-    def __init__(self) -> None:
-        super().__init__(
-            name='alma',
-            pkg_format='rpm',
-            base_image='almalinux:9',
-            pkg_install='sudo dnf install -y',
-            pkg_install_flags='--skip-broken',
-            pkg_update='dnf update -y',
-        )
+    name: str = 'alma'
+    pkg_format: str = 'rpm'
+    base_image: str = 'almalinux:9'
+    pkg_install: str = 'sudo dnf install -y'
+    pkg_install_flags: str = '--skip-broken'
+    pkg_update: str = 'dnf update -y'
 
 
+@dataclasses.dataclass
 class AlmaMinimalDistroConfig(RpmDistroConfig):
-    def __init__(self) -> None:
-        super().__init__(
-            name='alma-minimal',
-            pkg_format='rpm',
-            base_image='almalinux:9-minimal',
-            pkg_install='sudo microdnf install -y',
-            pkg_install_flags='',
-            pkg_update='microdnf update -y',
-        )
+    name: str = 'alma-minimal'
+    pkg_format: str = 'rpm'
+    base_image: str = 'almalinux:9-minimal'
+    pkg_install: str = 'sudo microdnf install -y'
+    pkg_install_flags: str = ''
+    pkg_update: str = 'microdnf update -y'
 
     def install(self, *packages: str) -> str:
         filtered = [p for p in packages if p != 'curl']
@@ -187,28 +181,24 @@ class AlmaMinimalDistroConfig(RpmDistroConfig):
         return 'true'
 
 
+@dataclasses.dataclass
 class FedoraDistroConfig(RpmDistroConfig):
-    def __init__(self) -> None:
-        super().__init__(
-            name='fedora',
-            pkg_format='rpm',
-            base_image='fedora:41',
-            pkg_install='sudo dnf install -y',
-            pkg_install_flags='',
-            pkg_update='dnf update -y',
-        )
+    name: str = 'fedora'
+    pkg_format: str = 'rpm'
+    base_image: str = 'fedora:41'
+    pkg_install: str = 'sudo dnf install -y'
+    pkg_install_flags: str = ''
+    pkg_update: str = 'dnf update -y'
 
 
+@dataclasses.dataclass
 class CudaDistroConfig(RpmDistroConfig):
-    def __init__(self) -> None:
-        super().__init__(
-            name='cuda',
-            pkg_format='rpm',
-            base_image='nvidia/cuda:11.8.0-runtime-ubi8',
-            pkg_install='sudo dnf install -y',
-            pkg_install_flags='--skip-broken',
-            pkg_update='dnf update -y',
-        )
+    name: str = 'cuda'
+    pkg_format: str = 'rpm'
+    base_image: str = 'nvidia/cuda:11.8.0-runtime-ubi8'
+    pkg_install: str = 'sudo dnf install -y'
+    pkg_install_flags: str = '--skip-broken'
+    pkg_update: str = 'dnf update -y'
 
 
 def resolve_dependencies(tools: dict[str, Tool], selected: list[str]) -> list[str]:
