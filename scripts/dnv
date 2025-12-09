@@ -3,6 +3,7 @@
 import argparse
 import dataclasses
 import datetime
+import functools
 import io
 import logging
 import os
@@ -51,12 +52,37 @@ class ContainerEngine:
         return [cls._detect(), 'image', 'prune', '-f']
 
 
+class ToolTemplate(string.Template):
+    delimiter = '<%>'
+
+
 @dataclasses.dataclass
 class Tool:
-    setup: list[str] = dataclasses.field(default_factory=list)
-    depends_on: list[str] = dataclasses.field(default_factory=list)
-    env: list[dict[str, str]] = dataclasses.field(default_factory=list)
-    copy: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    setup_template: list[str] | None = None
+    depends_on: list[str] | None = None
+    env: list[dict[str, str]] | None = None
+    copy: list[dict[str, str]] | None = None
+    version: str = ''
+    arch_map: dict[str, str] | None = None
+    current_arch: str = ''
+
+    @property
+    def setup(self) -> list[str]:
+        if not self.setup_template:
+            return []
+
+        if not any('<%>' in cmd for cmd in self.setup_template):
+            return self.setup_template
+
+        arch_value = self.arch_map.get(self.current_arch, '') if self.arch_map else ''
+        resolved = []
+        for cmd in self.setup_template:
+            try:
+                template = ToolTemplate(cmd)
+                resolved.append(template.safe_substitute(version=self.version, arch=arch_value))
+            except (KeyError, ValueError):
+                resolved.append(cmd)
+        return resolved
 
 
 @dataclasses.dataclass
@@ -215,7 +241,7 @@ def resolve_dependencies(tools: dict[str, Tool], selected: list[str]) -> list[st
             raise ValueError(f'unknown tool: {name}')
 
         in_stack.add(name)
-        for dep in tools[name].depends_on:
+        for dep in tools[name].depends_on or []:
             visit(dep)
         in_stack.remove(name)
         visited.add(name)
@@ -476,45 +502,7 @@ class DevEnvironmentConfig:
         self.distro = distro
         self.username = username
         self.profile = profile
-
-        # Version constants
-        self.versions = {
-            'go': 'go1.23.9',
-            'uv': '0.7.9',
-            'pnpm': '9.15.9',
-            'kubectl': 'v1.33.1',
-            'nvm': 'v0.39.2',
-            'eza': 'v0.21.1',
-            'neovim': '0.11.0',
-            'fzf': '0.56.3',
-            'ripgrep': '14.1.1',
-            'tokei': '12.1.2',
-        }
-
-        # Architecture mappings
-        self.arch_mappings = {
-            'x86_64': {
-                'go_arch': 'amd64',
-                'kubectl_arch': 'amd64',
-                'eza_target': 'x86_64-unknown-linux-gnu',
-                'nvim_arch': 'x86_64',
-                'fzf_arch': 'amd64',
-                'ripgrep_arch': 'x86_64-unknown-linux-musl',
-                'tokei_arch': 'x86_64-unknown-linux-gnu',
-            },
-            'aarch64': {
-                'go_arch': 'arm64',
-                'kubectl_arch': 'arm64',
-                'eza_target': 'aarch64-unknown-linux-gnu',
-                'nvim_arch': 'arm64',
-                'fzf_arch': 'arm64',
-                'ripgrep_arch': 'aarch64-unknown-linux-gnu',
-                'tokei_arch': 'aarch64-unknown-linux-gnu',
-            },
-        }
-
         self.host_arch = arch
-        self.current_arch_map = self.arch_mappings.get(self.host_arch, self.arch_mappings['x86_64'])
 
         self._setup_distro_config()
         self.conf = self._generate_conf()
@@ -532,139 +520,155 @@ class DevEnvironmentConfig:
 
     def _generate_conf(self) -> dict[str, Tool]:
         pkg = self.current_distro_config
-        arch = self.current_arch_map
-        v = self.versions
+        ToolWithArch = functools.partial(Tool, current_arch=self.host_arch)
 
         all_tools: dict[str, Tool] = {
             'curl': Tool(
-                setup=[pkg.install('curl')],
+                setup_template=[pkg.install('curl')],
             ),
             'tar': Tool(
-                setup=[pkg.install('tar')],
+                setup_template=[pkg.install('tar')],
             ),
             'unzip': Tool(
-                setup=[pkg.install('unzip')],
+                setup_template=[pkg.install('unzip')],
             ),
             'zip': Tool(
-                setup=[pkg.install('zip')],
+                setup_template=[pkg.install('zip')],
             ),
             'git': Tool(
-                setup=[pkg.install('git')],
+                setup_template=[pkg.install('git')],
             ),
             'make': Tool(
-                setup=[pkg.install('make')],
+                setup_template=[pkg.install('make')],
             ),
             'gcc': Tool(
-                setup=[pkg.install(pkg.gcc_package())],
+                setup_template=[pkg.install(pkg.gcc_package())],
             ),
             'vim': Tool(
-                setup=[pkg.install('vim')],
+                setup_template=[pkg.install('vim')],
             ),
             'ranger': Tool(
                 depends_on=['python'],
-                setup=['uv tool install ranger-fm'],
+                setup_template=['uv tool install ranger-fm'],
             ),
             'sysutils': Tool(
-                setup=[pkg.install(*pkg.sysutils_packages())],
+                setup_template=[pkg.install(*pkg.sysutils_packages())],
             ),
             'openssh': Tool(
-                setup=[pkg.install('openssh-server')],
+                setup_template=[pkg.install('openssh-server')],
             ),
-            'python': Tool(
+            'python': ToolWithArch(
                 depends_on=['curl', 'tar'],
                 env=[{'PATH': '$HOME/.local/bin:$PATH'}],
-                setup=[f'curl -LsSf https://astral.sh/uv/{v["uv"]}/install.sh | sh && uv python install 3.11 3.13'],
+                version='0.7.9',
+                setup_template=['curl -LsSf https://astral.sh/uv/<%>version/install.sh | sh && uv python install 3.11 3.13'],
             ),
-            'node': Tool(
+            'node': ToolWithArch(
                 depends_on=['curl'],
-                setup=[
-                    f"""curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{v['nvm']}/install.sh | bash && \\
+                version='v0.39.2',
+                setup_template=[
+                    """curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/<%>version/install.sh | bash && \\
                     export NVM_DIR=$HOME/.nvm && \\
                     source $NVM_DIR/nvm.sh && nvm install 22"""
                 ],
             ),
             'rust': Tool(
                 depends_on=['curl'],
-                setup=['curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path'],
+                setup_template=['curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path'],
                 env=[{'PATH': '$PATH:$HOME/.cargo/bin'}],
             ),
-            'go': Tool(
+            'go': ToolWithArch(
                 depends_on=['curl', 'tar'],
-                setup=[
-                    f"""curl -LO https://go.dev/dl/{v['go']}.linux-{arch['go_arch']}.tar.gz && \\
-                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf {v['go']}.linux-{arch['go_arch']}.tar.gz && \\
-                    rm {v['go']}.linux-{arch['go_arch']}.tar.gz && \\
+                version='go1.23.9',
+                arch_map={'x86_64': 'amd64', 'aarch64': 'arm64'},
+                setup_template=[
+                    """curl -LO https://go.dev/dl/<%>version.linux-<%>arch.tar.gz && \\
+                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf <%>version.linux-<%>arch.tar.gz && \\
+                    rm <%>version.linux-<%>arch.tar.gz && \\
                     echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc""",
                 ],
                 env=[{'PATH': '$PATH:/usr/local/go/bin'}],
             ),
             'sdkman': Tool(
                 depends_on=['curl', 'unzip', 'zip'],
-                setup=['curl -s "https://get.sdkman.io" | bash'],
+                setup_template=['curl -s "https://get.sdkman.io" | bash'],
             ),
-            'pnpm': Tool(
+            'pnpm': ToolWithArch(
                 depends_on=['curl', 'node'],
-                setup=[f'curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION={v["pnpm"]} sh -'],
+                version='9.15.9',
+                setup_template=['curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=<%>version sh -'],
             ),
             'ipython': Tool(
                 depends_on=['python'],
-                setup=['uv tool install --python 3.11 ipython'],
+                setup_template=['uv tool install --python 3.11 ipython'],
             ),
-            'neovim': Tool(
+            'neovim': ToolWithArch(
                 depends_on=['curl', 'tar'],
-                setup=[
-                    f"""curl -LO https://github.com/neovim/neovim/releases/download/v{v['neovim']}/nvim-linux-{arch['nvim_arch']}.tar.gz && \\
-                    sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-{arch['nvim_arch']}.tar.gz && \\
-                    sudo ln -sf /opt/nvim-linux-{arch['nvim_arch']}/bin/nvim /usr/local/bin/nvim && \\
-                    rm nvim-linux-{arch['nvim_arch']}.tar.gz"""
+                version='0.11.0',
+                arch_map={'x86_64': 'x86_64', 'aarch64': 'arm64'},
+                setup_template=[
+                    """curl -LO https://github.com/neovim/neovim/releases/download/v<%>version/nvim-linux-<%>arch.tar.gz && \\
+                    sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-<%>arch.tar.gz && \\
+                    sudo ln -sf /opt/nvim-linux-<%>arch/bin/nvim /usr/local/bin/nvim && \\
+                    rm nvim-linux-<%>arch.tar.gz"""
                 ],
             ),
             'starship': Tool(
                 depends_on=['curl'],
-                setup=['curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config'],
+                setup_template=['curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config'],
             ),
-            'fzf': Tool(
+            'fzf': ToolWithArch(
                 depends_on=['curl', 'tar'],
-                setup=[
-                    f"""curl -LO https://github.com/junegunn/fzf/releases/download/v{v['fzf']}/fzf-{v['fzf']}-linux_{arch['fzf_arch']}.tar.gz && \\
-                    tar -xzf fzf-{v['fzf']}-linux_{arch['fzf_arch']}.tar.gz && \\
-                    sudo mv fzf /usr/local/bin/ && rm fzf-{v['fzf']}-linux_{arch['fzf_arch']}.tar.gz"""
+                version='0.56.3',
+                arch_map={'x86_64': 'amd64', 'aarch64': 'arm64'},
+                setup_template=[
+                    """curl -LO https://github.com/junegunn/fzf/releases/download/v<%>version/fzf-<%>version-linux_<%>arch.tar.gz && \\
+                    tar -xzf fzf-<%>version-linux_<%>arch.tar.gz && \\
+                    sudo mv fzf /usr/local/bin/ && rm fzf-<%>version-linux_<%>arch.tar.gz"""
                 ],
             ),
-            'ripgrep': Tool(
+            'ripgrep': ToolWithArch(
                 depends_on=['curl', 'tar'],
-                setup=[
-                    f"""curl -LO https://github.com/BurntSushi/ripgrep/releases/download/{v['ripgrep']}/ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}.tar.gz && \\
-                    tar -xzf ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}.tar.gz && \\
-                    sudo mv ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}/rg /usr/local/bin/ && \\
-                    rm -rf ripgrep-{v['ripgrep']}-{arch['ripgrep_arch']}*"""
+                version='14.1.1',
+                arch_map={'x86_64': 'x86_64-unknown-linux-musl', 'aarch64': 'aarch64-unknown-linux-gnu'},
+                setup_template=[
+                    """curl -LO https://github.com/BurntSushi/ripgrep/releases/download/<%>version/ripgrep-<%>version-<%>arch.tar.gz && \\
+                    tar -xzf ripgrep-<%>version-<%>arch.tar.gz && \\
+                    sudo mv ripgrep-<%>version-<%>arch/rg /usr/local/bin/ && \\
+                    rm -rf ripgrep-<%>version-<%>arch*"""
                 ],
             ),
-            'tokei': Tool(
+            'tokei': ToolWithArch(
                 depends_on=['curl', 'tar'],
-                setup=[
-                    f"""curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v{v['tokei']}/tokei-{arch['tokei_arch']}.tar.gz && \\
-                    tar -xzf tokei-{arch['tokei_arch']}.tar.gz && \\
-                    sudo mv tokei /usr/local/bin/ && rm tokei-{arch['tokei_arch']}.tar.gz"""
+                version='12.1.2',
+                arch_map={'x86_64': 'x86_64-unknown-linux-gnu', 'aarch64': 'aarch64-unknown-linux-gnu'},
+                setup_template=[
+                    """curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v<%>version/tokei-<%>arch.tar.gz && \\
+                    tar -xzf tokei-<%>arch.tar.gz && \\
+                    sudo mv tokei /usr/local/bin/ && rm tokei-<%>arch.tar.gz"""
                 ],
             ),
-            'eza': Tool(
+            'eza': ToolWithArch(
                 depends_on=['curl', 'tar'],
-                setup=[
-                    f"""curl -L https://github.com/eza-community/eza/releases/download/{v['eza']}/eza_{arch['eza_target']}.tar.gz | tar -xz -C /tmp && \\
+                version='v0.21.1',
+                arch_map={'x86_64': 'x86_64-unknown-linux-gnu', 'aarch64': 'aarch64-unknown-linux-gnu'},
+                setup_template=[
+                    """curl -L https://github.com/eza-community/eza/releases/download/<%>version/eza_<%>arch.tar.gz | tar -xz -C /tmp && \\
                     sudo mv /tmp/eza /usr/local/bin/"""
                 ],
             ),
-            'kubectl': Tool(
+            'kubectl': ToolWithArch(
                 depends_on=['curl'],
-                setup=[
-                    f"""curl -LO https://dl.k8s.io/release/{v['kubectl']}/bin/linux/{arch['kubectl_arch']}/kubectl && \\
+                version='v1.33.1',
+                arch_map={'x86_64': 'amd64', 'aarch64': 'arm64'},
+                setup_template=[
+                    """curl -LO https://dl.k8s.io/release/<%>version/bin/linux/<%>arch/kubectl && \\
                     sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl"""
                 ],
             ),
             'ssh': Tool(
                 depends_on=['openssh'],
-                setup=[
+                setup_template=[
                     """sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \\
                     sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \\
                     sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config && \\
@@ -673,12 +677,12 @@ class DevEnvironmentConfig:
             ),
             'docker': Tool(
                 depends_on=['curl'],
-                setup=[pkg.docker_install_cmd()],
+                setup_template=[pkg.docker_install_cmd()],
             ),
             'dotfiles': Tool(
                 depends_on=['python'],
                 copy=[{'source': '.', 'destination': '.dotfiles/'}],
-                setup=[
+                setup_template=[
                     'ls ~/.dotfiles/',
                     f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync --source-dir=~/.dotfiles/ --profile={self.profile}',
                 ]
@@ -686,7 +690,7 @@ class DevEnvironmentConfig:
                 else [],
             ),
             'cleanup': Tool(
-                setup=[
+                setup_template=[
                     pkg.install_nosudo('clean', 'all')
                     if pkg.pkg_format == 'rpm'
                     else 'sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*'
