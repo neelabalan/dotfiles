@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import platform
+import random
 import shutil
 import subprocess
 import sys
@@ -159,7 +160,43 @@ def download_stream(filename: str, url: str) -> None:
             file.write(chunk)
 
 
-def run(stream_number: int | None = None) -> None:
+def play_stream(player: list[str], stream_name: str, stream_url: str, duration: int | None = None) -> bool:
+    fd, filename = tempfile.mkstemp(suffix='.mp3')
+    filepath = pathlib.Path(filename)
+    os.close(fd)
+
+    try:
+        download = threading.Thread(target=download_stream, args=(filename, stream_url), daemon=True)
+        download.start()
+
+        for _ in range(15):
+            time.sleep(1)
+            if filepath.stat().st_size > 128 * 1024:
+                break
+
+        if filepath.stat().st_size == 0:
+            print('error: failed to download stream')
+            return False
+
+        if duration:
+            process = subprocess.Popen(player + [filename])
+            time.sleep(duration * 60)
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        else:
+            subprocess.run(player + [filename])
+
+        return True
+
+    finally:
+        if filepath.exists():
+            filepath.unlink()
+
+
+def run(stream_number: int | None = None, shuffle_minutes: int | None = None) -> None:
     player = find_player()
     if not player:
         print('error: no audio player found (mpv, afplay, ffplay, or cvlc)')
@@ -170,31 +207,31 @@ def run(stream_number: int | None = None) -> None:
     init_cookies()
     response = get_streams()
     data = extract_url_names(response)
-    stream = get_choice_of_stream(data, stream_number)
+    stream_names = list(data.keys())
 
-    if not stream:
-        return
+    if shuffle_minutes:
+        print(f'shuffle mode: changing stream every {shuffle_minutes} minute(s)')
 
-    print(f'streaming: {stream}')
-    fd, filename = tempfile.mkstemp(suffix='.mp3')
-    filepath = pathlib.Path(filename)
-    os.close(fd)
-    try:
-        download = threading.Thread(target=download_stream, args=(filename, data.get(stream)), daemon=True)
-        download.start()
-        for _ in range(15):
-            time.sleep(1)
-            if filepath.stat().st_size > 128 * 1024:
-                break
-        if filepath.stat().st_size == 0:
-            print('error: failed to download stream')
-            sys.exit(1)
-        subprocess.run(player + [filename])
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        if filepath.exists():
-            filepath.unlink()
+        try:
+            while True:
+                stream = random.choice(stream_names)
+                stream_idx = stream_names.index(stream) + 1
+                print(f'[{stream_idx}/{len(stream_names)}] streaming: {stream}')
+                if not play_stream(player, stream, data[stream], shuffle_minutes):
+                    continue
+        except (KeyboardInterrupt, SystemExit):
+            pass
+    else:
+        stream = get_choice_of_stream(data, stream_number)
+        if not stream:
+            return
+
+        stream_idx = stream_names.index(stream) + 1
+        print(f'[{stream_idx}/{len(stream_names)}] streaming: {stream}')
+        try:
+            play_stream(player, stream, data[stream])
+        except (KeyboardInterrupt, SystemExit):
+            pass
 
 
 if __name__ == '__main__':
@@ -209,6 +246,12 @@ if __name__ == '__main__':
         metavar='N',
         help='stream number to play (bypasses interactive selection)',
     )
+    parser.add_argument(
+        '--shuffle',
+        type=int,
+        metavar='MINUTES',
+        help='randomly shuffle streams every N minutes',
+    )
     args = parser.parse_args()
 
-    run(args.stream)
+    run(args.stream, args.shuffle)
