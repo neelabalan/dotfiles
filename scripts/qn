@@ -373,6 +373,37 @@ class LinkManager:
 
         conn.close()
 
+    def check_duplicates(self) -> None:
+        print('scanning notes for duplicate links...')
+
+        url_locations: dict[str, list[tuple[str, int]]] = {}
+        markdown_files = list(self.notes_dir.rglob('*.md'))
+
+        for file_path in markdown_files:
+            relative_path = str(file_path.relative_to(self.notes_dir))
+            urls = self.extract_urls_from_file(file_path)
+
+            for url, line_num in urls:
+                if url not in url_locations:
+                    url_locations[url] = []
+                url_locations[url].append((relative_path, line_num))
+
+        duplicates = {url: locations for url, locations in url_locations.items() if len(locations) > 1}
+
+        if not duplicates:
+            print('no duplicate links found')
+            return
+
+        print(f'duplicate links ({len(duplicates)} found):\n')
+
+        for url in sorted(duplicates.keys()):
+            locations = duplicates[url]
+            print(f'{url}')
+            print(f'  found in {len(locations)} locations:')
+            for file_path, line_num in sorted(locations):
+                print(f'    {file_path}:{line_num}')
+            print()
+
     def list_links(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -975,7 +1006,8 @@ def main() -> None:
     url_subparsers = url_parser.add_subparsers(dest='url_command', help='URL commands')
 
     url_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
-    url_subparsers.add_parser('audit', help='Check for duplicate and dead links')
+    url_subparsers.add_parser('audit', help='Check for dead links')
+    url_subparsers.add_parser('dupes', help='Check for duplicate links')
     url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
 
     args = parser.parse_args()
@@ -1021,6 +1053,8 @@ def main() -> None:
             link_manager.catalog()
         elif args.url_command == 'audit':
             link_manager.audit()
+        elif args.url_command == 'dupes':
+            link_manager.check_duplicates()
         elif args.url_command == 'browse':
             user_config_path = get_config_path()
             user_port = None
@@ -1034,9 +1068,10 @@ def main() -> None:
             port = int(user_port) if user_port else 8765
             link_manager.browse_urls(port=port)
         else:
-            print('usage: qn url {catalog,audit,browse}')
+            print('usage: qn url {catalog,audit,dupes,browse}')
             print('  catalog  - Scan notes and build/update link index')
-            print('  audit    - Check for duplicate and dead links')
+            print('  audit    - Check for dead links')
+            print('  dupes    - Check for duplicate links')
             print('  browse   - Open web interface to browse URLs')
     else:
         create_note()
