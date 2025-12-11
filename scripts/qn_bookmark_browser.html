@@ -240,7 +240,7 @@
           (item.title && item.title.toLowerCase().includes(searchTerm));
 
         const matchesTags = selectedTags.size === 0 ||
-          (item.tags && item.tags.some(tag => selectedTags.has(tag)));
+          (item.tags && Array.from(selectedTags).every(tag => item.tags.includes(tag)));
 
         return matchesSearch && matchesTags;
       });
