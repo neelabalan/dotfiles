@@ -30,17 +30,22 @@
     }
 
     .url-col {
-      width: 40%;
-      min-width: 300px;
+      width: 35%;
+      min-width: 250px;
     }
 
     .title-col {
-      width: 45%;
+      width: 30%;
+    }
+
+    .tags-col {
+      width: 20%;
+      min-width: 120px;
     }
 
     .date-col {
       width: 15%;
-      min-width: 120px;
+      min-width: 100px;
     }
 
     @media (max-width: 768px) {
@@ -62,6 +67,30 @@
         display: none;
       }
     }
+
+    .tag-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+
+    .tag-filter {
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tag-filter:hover {
+      opacity: 0.8;
+    }
+
+    .tag-filter.active {
+      ring: 2px;
+      ring-color: rgb(59, 130, 246);
+    }
   </style>
 </head>
 
@@ -69,9 +98,17 @@
   <div class="container mx-auto px-4 py-6 md:py-8 max-w-7xl">
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 md:p-6">
       <h1 class="text-2xl md:text-3xl font-bold mb-4 md:mb-6 text-gray-900 dark:text-white">Bookmarks</h1>
-      <div class="mb-4 md:mb-6">
+      <div class="mb-4">
         <input type="text" id="searchInput" placeholder="Search URLs and titles..."
           class="w-full px-4 py-2 md:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-base">
+      </div>
+
+      <div class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Filter by Tags:</label>
+          <button id="clearTagsBtn" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">Clear All</button>
+        </div>
+        <div id="tagFilters" class="flex flex-wrap gap-2"></div>
       </div>
 
       <div class="overflow-x-auto desktop-table">
@@ -85,6 +122,9 @@
               <th class="sortable title-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300"
                 data-sort="title">
                 Title <span class="sort-indicator"></span>
+              </th>
+              <th class="tags-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Tags
               </th>
               <th class="sortable date-col px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300"
                 data-sort="first_seen">
@@ -117,6 +157,55 @@
     const itemsPerPage = 50;
     let sortColumn = 'url';
     let sortDirection = 'asc';
+    let selectedTags = new Set();
+
+    // Extract all unique tags and their counts
+    const tagCounts = {};
+    urlsData.forEach(item => {
+      if (item.tags && Array.isArray(item.tags)) {
+        item.tags.forEach(tag => {
+          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        });
+      }
+    });
+
+    function renderTagFilters() {
+      const container = document.getElementById('tagFilters');
+      container.innerHTML = '';
+
+      const sortedTags = Object.entries(tagCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([tag]) => tag);
+
+      sortedTags.forEach(tag => {
+        const badge = document.createElement('span');
+        const isActive = selectedTags.has(tag);
+
+        badge.className = `tag-badge tag-filter ${isActive ? 'active' : ''}`;
+        badge.style.backgroundColor = isActive ? '#3b82f6' : 'transparent';
+        badge.style.color = isActive ? 'white' : '#6b7280';
+        badge.style.border = `2px solid ${isActive ? '#3b82f6' : '#d1d5db'}`;
+        badge.textContent = `#${tag} (${tagCounts[tag]})`;
+        badge.onclick = () => toggleTag(tag);
+        container.appendChild(badge);
+      });
+    }
+
+    function toggleTag(tag) {
+      if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+      } else {
+        selectedTags.add(tag);
+      }
+      renderTagFilters();
+      renderContent();
+    }
+
+    document.getElementById('clearTagsBtn').onclick = () => {
+      selectedTags.clear();
+      renderTagFilters();
+      renderContent();
+    };
 
     function formatDate(isoString) {
       if (!isoString) return 'N/A';
@@ -147,8 +236,13 @@
       const searchTerm = document.getElementById('searchInput').value.toLowerCase();
 
       filteredUrls = urlsData.filter(item => {
-        return item.url.toLowerCase().includes(searchTerm) ||
+        const matchesSearch = item.url.toLowerCase().includes(searchTerm) ||
           (item.title && item.title.toLowerCase().includes(searchTerm));
+
+        const matchesTags = selectedTags.size === 0 ||
+          (item.tags && item.tags.some(tag => selectedTags.has(tag)));
+
+        return matchesSearch && matchesTags;
       });
 
       filteredUrls.sort((a, b) => {
@@ -191,12 +285,19 @@
         const row = document.createElement('tr');
         row.className = 'url-row border-b border-gray-200 dark:border-gray-700';
 
+        const tagsHtml = item.tags && item.tags.length > 0
+          ? item.tags.map(tag => {
+            return `<span class="tag-badge" style="background-color: #e5e7eb; color: #374151; border: 1px solid #d1d5db;">#${tag}</span>`;
+          }).join('')
+          : '<span class="text-gray-400 text-xs">No tags</span>';
+
         row.innerHTML = `
-<td class="px-4 py-3">
+<td class="px-4 py-3 break-words">
 <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-sm">${item.url}</a>
 </td>
-<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">${item.title ? item.title : '<span class="text-gray-400">No title</span>'}</td>
-<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">${formatDate(item.first_seen)}</td>
+<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 break-words">${item.title ? item.title : '<span class="text-gray-400">No title</span>'}</td>
+<td class="px-4 py-3 text-sm break-words">${tagsHtml}</td>
+<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">${formatDate(item.first_seen)}</td>
 `;
         tbody.appendChild(row);
       });
@@ -216,10 +317,17 @@
         const card = document.createElement('div');
         card.className = 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 shadow-sm';
 
+        const tagsHtml = item.tags && item.tags.length > 0
+          ? '<div class="mt-2">' + item.tags.map(tag => {
+            return `<span class="tag-badge" style="background-color: #e5e7eb; color: #374151; border: 1px solid #d1d5db;">#${tag}</span>`;
+          }).join('') + '</div>'
+          : '';
+
         card.innerHTML = `
 <a href="${item.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline break-all text-base font-medium block mb-2">${item.url}</a>
 ${item.title ? `<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">${item.title}</div>` : ''}
-<div class="text-xs text-gray-500 dark:text-gray-400">Added: ${formatDate(item.first_seen)}</div>
+${tagsHtml}
+<div class="text-xs text-gray-500 dark:text-gray-400 mt-2">Added: ${formatDate(item.first_seen)}</div>
 `;
         container.appendChild(card);
       });
@@ -273,10 +381,13 @@ ${item.title ? `<div class="text-sm text-gray-700 dark:text-gray-300 mb-2">${ite
       }
       if (e.key === 'Escape') {
         document.getElementById('searchInput').value = '';
+        selectedTags.clear();
+        renderTagFilters();
         renderContent();
       }
     });
 
+    renderTagFilters();
     updateSortIndicators();
     renderContent();
     console.log('Initial render complete');

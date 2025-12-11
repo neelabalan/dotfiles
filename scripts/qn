@@ -181,46 +181,40 @@ class LinkManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='link_locations'")
-        has_old_schema = cursor.fetchone() is not None
-
-        if has_old_schema:
-            cursor.execute('PRAGMA table_info(links)')
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'file_path' not in columns:
-                print('migrating database schema...')
-
-                cursor.execute('ALTER TABLE links ADD COLUMN file_path TEXT')
-
-                cursor.execute("""
-                    UPDATE links
-                    SET file_path = (
-                        SELECT file_path
-                        FROM link_locations
-                        WHERE link_locations.url = links.url
-                        LIMIT 1
-                    )
-                """)
-
-                cursor.execute('DROP TABLE IF EXISTS link_locations')
-                cursor.execute('DROP INDEX IF EXISTS idx_url')
-
-                print('migration complete')
-        else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS links (
-                    url TEXT PRIMARY KEY,
-                    title TEXT,
-                    status TEXT,
-                    status_code INTEGER,
-                    last_checked TIMESTAMP,
-                    domain TEXT,
-                    first_seen TIMESTAMP,
-                    file_path TEXT
-                )
-            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS links (
+                url TEXT PRIMARY KEY,
+                title TEXT,
+                status TEXT,
+                status_code INTEGER,
+                last_checked TIMESTAMP,
+                domain TEXT,
+                first_seen TIMESTAMP,
+                file_path TEXT
+            )
+        """)
 
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain ON links(domain)')
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tags (
+                tag_name TEXT PRIMARY KEY,
+                link_count INTEGER DEFAULT 0
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS link_tags (
+                url TEXT NOT NULL,
+                tag_name TEXT NOT NULL,
+                PRIMARY KEY (url, tag_name),
+                FOREIGN KEY (url) REFERENCES links(url) ON DELETE CASCADE,
+                FOREIGN KEY (tag_name) REFERENCES tags(tag_name) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_link_tags_url ON link_tags(url)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_link_tags_tag ON link_tags(tag_name)')
 
         conn.commit()
         conn.close()
@@ -252,6 +246,85 @@ class LinkManager:
 
         return urls
 
+    def extract_tagged_urls_from_file(self, file_path: pathlib.Path) -> dict[str, tuple[list[str], int]]:
+        url_tags = {}
+        try:
+            content = file_path.read_text(encoding='utf-8', errors='ignore')
+            lines = content.split('\n')
+
+            line_index = 0
+            while line_index < len(lines):
+                current_line = lines[line_index].strip()
+
+                if '<!-- qn-links -->' in current_line or '<!--qn-links-->' in current_line:
+                    line_index += 1
+                    tag_stack = []
+
+                    while line_index < len(lines):
+                        current_line = lines[line_index]
+                        stripped_line = current_line.strip()
+
+                        if '<!-- /qn-links -->' in stripped_line or '<!--/qn-links-->' in stripped_line:
+                            break
+
+                        if not stripped_line or stripped_line.startswith('```'):
+                            line_index += 1
+                            continue
+
+                        indent_level = len(current_line) - len(current_line.lstrip())
+
+                        if stripped_line.startswith('- #'):
+                            tag_text = stripped_line[2:].strip()
+                            tag_names = []
+                            for tag_match in re.finditer(r'#([a-z0-9]+)', tag_text):
+                                tag_name = tag_match.group(1)
+                                if not re.match(r'^[a-z0-9]+$', tag_name):
+                                    relative_path = file_path.relative_to(self.notes_dir)
+                                    raise ValueError(
+                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index+1}\n'
+                                        f'tags must be lowercase alphanumeric only (a-z, 0-9)'
+                                    )
+                                tag_names.append(tag_name)
+
+                            if tag_names:
+                                tag_stack = [(level, tag) for level, tag in tag_stack if level < indent_level]
+                                for tag_name in tag_names:
+                                    tag_stack.append((indent_level, tag_name))
+
+                        elif stripped_line.startswith('- http://') or stripped_line.startswith('- https://'):
+                            url_start_pos = 2
+                            url_text = stripped_line[url_start_pos:].split()[0]
+                            url = url_text.rstrip('.,;:!?')
+
+                            parent_tags = [tag for level, tag in tag_stack if level < indent_level]
+
+                            inline_tags = []
+                            remaining_text = stripped_line[url_start_pos + len(url_text):]
+                            for tag_match in re.finditer(r'#([a-z0-9]+)', remaining_text):
+                                tag_name = tag_match.group(1)
+                                if not re.match(r'^[a-z0-9]+$', tag_name):
+                                    relative_path = file_path.relative_to(self.notes_dir)
+                                    raise ValueError(
+                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index+1}\n'
+                                        f'tags must be lowercase alphanumeric only (a-z, 0-9)'
+                                    )
+                                inline_tags.append(tag_name)
+
+                            combined_tags = parent_tags + inline_tags
+                            if not combined_tags:
+                                combined_tags = ['untagged']
+
+                            url_tags[url] = (combined_tags, line_index + 1)
+
+                        line_index += 1
+
+                line_index += 1
+
+        except OSError:
+            pass
+
+        return url_tags
+
     def fetch_url_metadata(self, url: str, timeout: int = 5) -> tuple[typing.Optional[str], str, int]:
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; qn-links/1.0)'})
@@ -274,21 +347,54 @@ class LinkManager:
         except (urllib.error.URLError, TimeoutError, Exception):
             return None, 'dead', 0
 
-    def catalog(self) -> None:
-        print('scanning notes...')
-
-        current_urls: dict[str, str] = {}
+    def _scan_and_validate_urls(self) -> tuple[dict[str, tuple[str, int, list[str]]], dict[str, str]]:
+        print('phase 1: validating tag blocks...')
         markdown_files = list(self.notes_dir.rglob('*.md'))
 
+        all_tagged_urls: dict[str, tuple[str, int, list[str]]] = {}
+        regular_urls: dict[str, str] = {}
+
         for file_path in markdown_files:
-            relative_path = file_path.relative_to(self.notes_dir)
-            urls = self.extract_urls_from_file(file_path)
+            relative_path = str(file_path.relative_to(self.notes_dir))
 
-            for url, line_num in urls:
-                if url not in current_urls:
-                    current_urls[url] = str(relative_path)
+            tagged_urls = self.extract_tagged_urls_from_file(file_path)
 
-        print(f'found {len(current_urls)} unique links across {len(markdown_files)} notes\n')
+            for url, (tags, line_num) in tagged_urls.items():
+                if url in all_tagged_urls:
+                    prev_file, prev_line, _ = all_tagged_urls[url]
+                    raise ValueError(
+                        f'duplicate URL found:\n'
+                        f'{url}\n'
+                        f'first occurrence: {prev_file}:{prev_line}\n'
+                        f'duplicate found: {relative_path}:{line_num}\n'
+                        f'each URL can only appear in one tag block'
+                    )
+
+                all_tagged_urls[url] = (relative_path, line_num, tags)
+
+            all_urls = self.extract_urls_from_file(file_path)
+            for url, line_num in all_urls:
+                if url not in all_tagged_urls and url not in regular_urls:
+                    regular_urls[url] = relative_path
+
+        print(f'found {len(all_tagged_urls)} tagged links')
+        print(f'found {len(regular_urls)} untagged links')
+        print(f'scanned {len(markdown_files)} markdown files')
+
+        return all_tagged_urls, regular_urls
+
+    def _update_database(
+        self,
+        all_tagged_urls: dict[str, tuple[str, int, list[str]]],
+        regular_urls: dict[str, str]
+    ) -> None:
+        print('\nphase 2: updating database...')
+
+        current_urls: dict[str, str] = {}
+        for url, (file_path, _, _) in all_tagged_urls.items():
+            current_urls[url] = file_path
+        for url, file_path in regular_urls.items():
+            current_urls[url] = file_path
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -299,16 +405,15 @@ class LinkManager:
         orphaned_urls = set(db_data.keys()) - set(current_urls.keys())
 
         if orphaned_urls:
-            print('cleaning up:')
-            print(f'  removed {len(orphaned_urls)} orphaned links no longer in notes\n')
+            print(f'removing {len(orphaned_urls)} orphaned links...')
             for url in orphaned_urls:
                 cursor.execute('DELETE FROM links WHERE url = ?', (url,))
+                cursor.execute('DELETE FROM link_tags WHERE url = ?', (url,))
 
         new_urls = set(current_urls.keys()) - set(db_data.keys())
 
-        print('updating index:')
         if new_urls:
-            print(f'  fetching metadata for {len(new_urls)} new links...')
+            print(f'fetching metadata for {len(new_urls)} new links...')
 
             results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -326,9 +431,9 @@ class LinkManager:
 
                         completed += 1
                         if completed % 10 == 0:
-                            print(f'    processed {completed}/{len(new_urls)}...')
+                            print(f'processed {completed}/{len(new_urls)}...')
                     except Exception as e:
-                        print(f'    error processing {url}: {e}')
+                        print(f'error processing {url}: {e}')
 
             for result in results:
                 cursor.execute(
@@ -343,12 +448,44 @@ class LinkManager:
             if url not in new_urls:
                 cursor.execute('UPDATE links SET file_path = ? WHERE url = ?', (url_file_path, url))
 
+        print('updating tags...')
+        cursor.execute('DELETE FROM link_tags')
+
+        tag_counts: dict[str, int] = {}
+
+        for url, (_, _, tags) in all_tagged_urls.items():
+            unique_tags = set(tags)
+            for tag in unique_tags:
+                cursor.execute('INSERT INTO link_tags (url, tag_name) VALUES (?, ?)', (url, tag))
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+        for url in regular_urls:
+            cursor.execute('INSERT INTO link_tags (url, tag_name) VALUES (?, ?)', (url, 'untagged'))
+            tag_counts['untagged'] = tag_counts.get('untagged', 0) + 1
+
+        cursor.execute('DELETE FROM tags')
+        for tag, count in tag_counts.items():
+            cursor.execute('INSERT INTO tags (tag_name, link_count) VALUES (?, ?)', (tag, count))
+
         conn.commit()
         conn.close()
 
-        print(f'  {len(new_urls)} new links added')
-        print(f'  {len(current_urls) - len(new_urls)} existing links updated')
-        print('\ncatalog complete!')
+        print(f'\n{len(new_urls)} new links added')
+        print(f'{len(current_urls) - len(new_urls)} existing links updated')
+        print(f'{len(tag_counts)} unique tags')
+        print('\ncatalog complete')
+
+    def catalog(self) -> None:
+        print('scanning notes...')
+
+        try:
+            all_tagged_urls, regular_urls = self._scan_and_validate_urls()
+        except ValueError as e:
+            print(f'\nerror: {e}')
+            print('no changes were made to the database')
+            return
+
+        self._update_database(all_tagged_urls, regular_urls)
 
     def audit(self) -> None:
         conn = sqlite3.connect(self.db_path)
@@ -373,6 +510,77 @@ class LinkManager:
 
         conn.close()
 
+    def list_tags(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT tag_name, link_count
+            FROM tags
+            ORDER BY link_count DESC, tag_name
+        """)
+        tags = cursor.fetchall()
+        conn.close()
+
+        if not tags:
+            print('no tags found. run "qn url catalog" first.')
+            return
+
+        print(f'TAGS ({len(tags)} total):\n')
+        for tag, count in tags:
+            print(f'#{tag:<20} {count:>4} links')
+
+    def filter_by_tags(self, tags: list[str]) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Normalize tags (lowercase, remove # if present)
+        normalized_tags = [tag.lstrip('#').lower() for tag in tags]
+
+        # Find links that have ALL specified tags (AND logic)
+        placeholders = ','.join('?' * len(normalized_tags))
+        query = f"""
+            SELECT l.url, l.title, l.domain,
+                   GROUP_CONCAT(lt.tag_name, ', ') as all_tags
+            FROM links l
+            JOIN link_tags lt ON l.url = lt.url
+            WHERE l.url IN (
+                SELECT url
+                FROM link_tags
+                WHERE tag_name IN ({placeholders})
+                GROUP BY url
+                HAVING COUNT(DISTINCT tag_name) = ?
+            )
+            GROUP BY l.url
+            ORDER BY l.domain, l.url
+        """
+
+        cursor.execute(query, (*normalized_tags, len(normalized_tags)))
+        results = cursor.fetchall()
+        conn.close()
+
+        if not results:
+            tags_str = ', '.join(f'#{tag}' for tag in normalized_tags)
+            print(f'no links found with tags: {tags_str}')
+            return
+
+        tags_str = ', '.join(f'#{tag}' for tag in normalized_tags)
+        print(f'LINKS WITH TAGS {tags_str} ({len(results)} found):\n')
+
+        current_domain = None
+        for url, title, domain, all_tags in results:
+            if domain != current_domain:
+                if current_domain is not None:
+                    print()
+                print(f'[{domain}]')
+                current_domain = domain
+
+            tag_list = ', '.join(f'#{tag}' for tag in all_tags.split(', '))
+            print(f'  {url}')
+            if title:
+                print(f'    "{title}"')
+            print(f'    tags: {tag_list}')
+
     def check_duplicates(self) -> None:
         print('scanning notes for duplicate links...')
 
@@ -394,14 +602,14 @@ class LinkManager:
             print('no duplicate links found')
             return
 
-        print(f'duplicate links ({len(duplicates)} found):\n')
+        print(f'\nDUPLICATE LINKS ({len(duplicates)} found):\n')
 
         for url in sorted(duplicates.keys()):
             locations = duplicates[url]
             print(f'{url}')
-            print(f'  found in {len(locations)} locations:')
+            print(f'found in {len(locations)} locations:')
             for file_path, line_num in sorted(locations):
-                print(f'    {file_path}:{line_num}')
+                print(f'  {file_path}:{line_num}')
             print()
 
     def list_links(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
@@ -450,8 +658,11 @@ class LinkManager:
         cursor = conn.cursor()
 
         query = """
-            SELECT l.url, l.title, l.status, l.status_code, l.domain, l.first_seen
+            SELECT l.url, l.title, l.status, l.status_code, l.domain, l.first_seen,
+                   GROUP_CONCAT(lt.tag_name, '|') as tags
             FROM links l
+            LEFT JOIN link_tags lt ON l.url = lt.url
+            GROUP BY l.url
             ORDER BY l.domain, l.url
         """
 
@@ -460,7 +671,8 @@ class LinkManager:
         conn.close()
 
         urls_data = []
-        for url, title, status, status_code, link_domain, first_seen in links:
+        for url, title, status, status_code, link_domain, first_seen, tags in links:
+            tag_list = tags.split('|') if tags else []
             urls_data.append(
                 {
                     'url': url,
@@ -469,6 +681,7 @@ class LinkManager:
                     'status_code': status_code,
                     'domain': link_domain,
                     'first_seen': first_seen,
+                    'tags': tag_list,
                 }
             )
 
@@ -1008,6 +1221,11 @@ def main() -> None:
     url_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
     url_subparsers.add_parser('audit', help='Check for dead links')
     url_subparsers.add_parser('dupes', help='Check for duplicate links')
+    url_subparsers.add_parser('tags', help='List all tags with link counts')
+
+    filter_parser = url_subparsers.add_parser('filter', help='Filter links by tags')
+    filter_parser.add_argument('--tag', action='append', required=True, help='Tag to filter by (can specify multiple)')
+
     url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
 
     args = parser.parse_args()
@@ -1055,6 +1273,10 @@ def main() -> None:
             link_manager.audit()
         elif args.url_command == 'dupes':
             link_manager.check_duplicates()
+        elif args.url_command == 'tags':
+            link_manager.list_tags()
+        elif args.url_command == 'filter':
+            link_manager.filter_by_tags(args.tag)
         elif args.url_command == 'browse':
             user_config_path = get_config_path()
             user_port = None
@@ -1068,10 +1290,12 @@ def main() -> None:
             port = int(user_port) if user_port else 8765
             link_manager.browse_urls(port=port)
         else:
-            print('usage: qn url {catalog,audit,dupes,browse}')
+            print('usage: qn url {catalog,audit,dupes,tags,filter,browse}')
             print('  catalog  - Scan notes and build/update link index')
             print('  audit    - Check for dead links')
             print('  dupes    - Check for duplicate links')
+            print('  tags     - List all tags with link counts')
+            print('  filter   - Filter links by tags (--tag TAG)')
             print('  browse   - Open web interface to browse URLs')
     else:
         create_note()
