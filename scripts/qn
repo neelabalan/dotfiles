@@ -281,7 +281,7 @@ class LinkManager:
                                 if not re.match(r'^[a-z0-9]+$', tag_name):
                                     relative_path = file_path.relative_to(self.notes_dir)
                                     raise ValueError(
-                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index+1}\n'
+                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index + 1}\n'
                                         f'tags must be lowercase alphanumeric only (a-z, 0-9)'
                                     )
                                 tag_names.append(tag_name)
@@ -299,13 +299,13 @@ class LinkManager:
                             parent_tags = [tag for level, tag in tag_stack if level < indent_level]
 
                             inline_tags = []
-                            remaining_text = stripped_line[url_start_pos + len(url_text):]
+                            remaining_text = stripped_line[url_start_pos + len(url_text) :]
                             for tag_match in re.finditer(r'#([a-z0-9]+)', remaining_text):
                                 tag_name = tag_match.group(1)
                                 if not re.match(r'^[a-z0-9]+$', tag_name):
                                     relative_path = file_path.relative_to(self.notes_dir)
                                     raise ValueError(
-                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index+1}\n'
+                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index + 1}\n'
                                         f'tags must be lowercase alphanumeric only (a-z, 0-9)'
                                     )
                                 inline_tags.append(tag_name)
@@ -384,9 +384,7 @@ class LinkManager:
         return all_tagged_urls, regular_urls
 
     def _update_database(
-        self,
-        all_tagged_urls: dict[str, tuple[str, int, list[str]]],
-        regular_urls: dict[str, str]
+        self, all_tagged_urls: dict[str, tuple[str, int, list[str]]], regular_urls: dict[str, str]
     ) -> None:
         print('\nphase 2: updating database...')
 
