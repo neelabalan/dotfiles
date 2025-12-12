@@ -104,8 +104,8 @@
       </div>
 
       <div class="mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Filter by Tags:</label>
+        <div class="flex items-center justify-between mb-2 cursor-pointer" id="tagFilterToggle">
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Filter by Tags <span id="tagFilterArrow">▼</span></label>
           <button id="clearTagsBtn" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">Clear All</button>
         </div>
         <div id="tagFilters" class="flex flex-wrap gap-2"></div>
@@ -146,7 +146,7 @@
     </div>
   </div>
   <script>
-    const urlsData = {{ URLS_DATA }};
+    const urlsData = {{URLS_DATA}};
     console.log('Total URLs loaded:', urlsData.length);
     if (urlsData.length > 0) {
       console.log('Sample URL:', urlsData[0]);
@@ -174,7 +174,7 @@
       container.innerHTML = '';
 
       const sortedTags = Object.entries(tagCounts)
-        .sort((a, b) => b[1] - a[1])
+        .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([tag]) => tag);
 
       sortedTags.forEach(tag => {
@@ -201,10 +201,23 @@
       renderContent();
     }
 
-    document.getElementById('clearTagsBtn').onclick = () => {
+    document.getElementById('clearTagsBtn').onclick = (e) => {
+      e.stopPropagation();
       selectedTags.clear();
       renderTagFilters();
       renderContent();
+    };
+
+    document.getElementById('tagFilterToggle').onclick = () => {
+      const filters = document.getElementById('tagFilters');
+      const arrow = document.getElementById('tagFilterArrow');
+      if (filters.style.display === 'none') {
+        filters.style.display = 'flex';
+        arrow.textContent = '▼';
+      } else {
+        filters.style.display = 'none';
+        arrow.textContent = '▶';
+      }
     };
 
     function formatDate(isoString) {
