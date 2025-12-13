@@ -528,57 +528,6 @@ class LinkManager:
         for tag, count in tags:
             print(f'#{tag:<20} {count:>4} links')
 
-    def filter_by_tags(self, tags: list[str]) -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Normalize tags (lowercase, remove # if present)
-        normalized_tags = [tag.lstrip('#').lower() for tag in tags]
-
-        # Find links that have ALL specified tags (AND logic)
-        placeholders = ','.join('?' * len(normalized_tags))
-        query = f"""
-            SELECT l.url, l.title, l.domain,
-                   GROUP_CONCAT(lt.tag_name, ', ') as all_tags
-            FROM links l
-            JOIN link_tags lt ON l.url = lt.url
-            WHERE l.url IN (
-                SELECT url
-                FROM link_tags
-                WHERE tag_name IN ({placeholders})
-                GROUP BY url
-                HAVING COUNT(DISTINCT tag_name) = ?
-            )
-            GROUP BY l.url
-            ORDER BY l.domain, l.url
-        """
-
-        cursor.execute(query, (*normalized_tags, len(normalized_tags)))
-        results = cursor.fetchall()
-        conn.close()
-
-        if not results:
-            tags_str = ', '.join(f'#{tag}' for tag in normalized_tags)
-            print(f'no links found with tags: {tags_str}')
-            return
-
-        tags_str = ', '.join(f'#{tag}' for tag in normalized_tags)
-        print(f'LINKS WITH TAGS {tags_str} ({len(results)} found):\n')
-
-        current_domain = None
-        for url, title, domain, all_tags in results:
-            if domain != current_domain:
-                if current_domain is not None:
-                    print()
-                print(f'[{domain}]')
-                current_domain = domain
-
-            tag_list = ', '.join(f'#{tag}' for tag in all_tags.split(', '))
-            print(f'  {url}')
-            if title:
-                print(f'    "{title}"')
-            print(f'    tags: {tag_list}')
-
     def check_duplicates(self) -> None:
         print('scanning notes for duplicate links...')
 
@@ -699,7 +648,10 @@ class LinkManager:
             def log_message(self, format, *args):
                 pass
 
-        with socketserver.TCPServer(('', port), RequestHandler) as httpd:
+        class ReuseAddrTCPServer(socketserver.TCPServer):
+            allow_reuse_address = True
+
+        with ReuseAddrTCPServer(('', port), RequestHandler) as httpd:
             url = f'http://localhost:{port}'
             print(f'opening browser at {url}')
             print('press ctrl+c to stop server')
@@ -709,7 +661,9 @@ class LinkManager:
             try:
                 httpd.serve_forever()
             except KeyboardInterrupt:
-                print('\nserver stopped')
+                print('\nshutting down server...')
+                httpd.shutdown()
+                print('server stopped')
 
 
 def get_config_path() -> pathlib.Path:
@@ -1219,11 +1173,6 @@ def main() -> None:
     url_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
     url_subparsers.add_parser('audit', help='Check for dead links')
     url_subparsers.add_parser('dupes', help='Check for duplicate links')
-    url_subparsers.add_parser('tags', help='List all tags with link counts')
-
-    filter_parser = url_subparsers.add_parser('filter', help='Filter links by tags')
-    filter_parser.add_argument('--tag', action='append', required=True, help='Tag to filter by (can specify multiple)')
-
     url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
 
     args = parser.parse_args()
@@ -1271,10 +1220,6 @@ def main() -> None:
             link_manager.audit()
         elif args.url_command == 'dupes':
             link_manager.check_duplicates()
-        elif args.url_command == 'tags':
-            link_manager.list_tags()
-        elif args.url_command == 'filter':
-            link_manager.filter_by_tags(args.tag)
         elif args.url_command == 'browse':
             user_config_path = get_config_path()
             user_port = None
@@ -1292,8 +1237,6 @@ def main() -> None:
             print('  catalog  - Scan notes and build/update link index')
             print('  audit    - Check for dead links')
             print('  dupes    - Check for duplicate links')
-            print('  tags     - List all tags with link counts')
-            print('  filter   - Filter links by tags (--tag TAG)')
             print('  browse   - Open web interface to browse URLs')
     else:
         create_note()
