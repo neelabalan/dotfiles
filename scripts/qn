@@ -275,16 +275,7 @@ class LinkManager:
 
                         if stripped_line.startswith('- #'):
                             tag_text = stripped_line[2:].strip()
-                            tag_names = []
-                            for tag_match in re.finditer(r'#([a-z0-9]+)', tag_text):
-                                tag_name = tag_match.group(1)
-                                if not re.match(r'^[a-z0-9]+$', tag_name):
-                                    relative_path = file_path.relative_to(self.notes_dir)
-                                    raise ValueError(
-                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index + 1}\n'
-                                        f'tags must be lowercase alphanumeric only (a-z, 0-9)'
-                                    )
-                                tag_names.append(tag_name)
+                            tag_names = [tag_match.group(1) for tag_match in re.finditer(r'#([a-z0-9]+)', tag_text)]
 
                             if tag_names:
                                 tag_stack = [(level, tag) for level, tag in tag_stack if level < indent_level]
@@ -298,26 +289,17 @@ class LinkManager:
 
                             parent_tags = [tag for level, tag in tag_stack if level < indent_level]
 
-                            inline_tags = []
                             remaining_text = stripped_line[url_start_pos + len(url_text) :]
-                            for tag_match in re.finditer(r'#([a-z0-9]+)', remaining_text):
-                                tag_name = tag_match.group(1)
-                                if not re.match(r'^[a-z0-9]+$', tag_name):
-                                    relative_path = file_path.relative_to(self.notes_dir)
-                                    raise ValueError(
-                                        f'invalid tag "#{tag_name}" in {relative_path}:{line_index + 1}\n'
-                                        f'tags must be lowercase alphanumeric only (a-z, 0-9)'
-                                    )
-                                inline_tags.append(tag_name)
+                            inline_tags = [
+                                tag_match.group(1) for tag_match in re.finditer(r'#([a-z0-9]+)', remaining_text)
+                            ]
 
                             combined_tags = parent_tags + inline_tags
                             if not combined_tags:
                                 combined_tags = ['untagged']
 
                             url_tags[url] = (combined_tags, line_index + 1)
-
                         line_index += 1
-
                 line_index += 1
 
         except OSError:
@@ -600,7 +582,7 @@ class LinkManager:
 
         conn.close()
 
-    def browse_urls(self, port: int) -> None:
+    def browse_urls(self, port: int, bind_address: str = '127.0.0.1') -> None:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -651,8 +633,9 @@ class LinkManager:
         class ReuseAddrTCPServer(socketserver.TCPServer):
             allow_reuse_address = True
 
-        with ReuseAddrTCPServer(('', port), RequestHandler) as httpd:
-            url = f'http://localhost:{port}'
+        with ReuseAddrTCPServer((bind_address, port), RequestHandler) as httpd:
+            url = f'http://{bind_address}:{port}'
+            print(f'server listening on {bind_address}:{port}')
             print(f'opening browser at {url}')
             print('press ctrl+c to stop server')
 
@@ -683,6 +666,7 @@ def get_default_config() -> dict[str, str]:
         'gpg_private_key': '',
         'max_workers': '10',
         'browser_port': '8765',
+        'bind_address': '127.0.0.1',
     }
 
 
@@ -1223,15 +1207,17 @@ def main() -> None:
         elif args.url_command == 'browse':
             user_config_path = get_config_path()
             user_port = None
+            bind_address = '127.0.0.1'
             if user_config_path.exists():
                 try:
                     with open(user_config_path) as f:
                         user_config = json.load(f)
                     user_port = user_config.get('browser_port') or user_config.get('port')
+                    bind_address = user_config.get('bind_address', '127.0.0.1')
                 except (json.JSONDecodeError, OSError):
                     pass
             port = int(user_port) if user_port else 8765
-            link_manager.browse_urls(port=port)
+            link_manager.browse_urls(port=port, bind_address=bind_address)
         else:
             print('usage: qn url {catalog,audit,dupes,tags,filter,browse}')
             print('  catalog  - Scan notes and build/update link index')

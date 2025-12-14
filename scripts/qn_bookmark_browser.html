@@ -182,9 +182,9 @@
         const isActive = selectedTags.has(tag);
 
         badge.className = `tag-badge tag-filter ${isActive ? 'active' : ''}`;
-        badge.style.backgroundColor = isActive ? '#3b82f6' : 'transparent';
+        badge.style.backgroundColor = isActive ? '#3b82f6' : '#f9fafb';
         badge.style.color = isActive ? 'white' : '#6b7280';
-        badge.style.border = `2px solid ${isActive ? '#3b82f6' : '#d1d5db'}`;
+        badge.style.border = `2px solid ${isActive ? '#3b82f6' : '#e5e7eb'}`;
         badge.textContent = `#${tag} (${tagCounts[tag]})`;
         badge.onclick = () => toggleTag(tag);
         container.appendChild(badge);
