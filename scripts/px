@@ -82,7 +82,11 @@ class Config:
                 )
 
     def _check_defaults_in_dirs(
-        self, dirs_config: dict[str, typing.Any], language: str, default_counts: dict[str, int], path_parts: list[str] | None = None
+        self,
+        dirs_config: dict[str, typing.Any],
+        language: str,
+        default_counts: dict[str, int],
+        path_parts: list[str] | None = None,
     ) -> None:
         if path_parts is None:
             path_parts = []
@@ -153,7 +157,13 @@ class Config:
                 self._collect_dirs(dir_structure, base_path, result, language)
         return result
 
-    def _collect_dirs(self, dir_config: dict[str, typing.Any], prefix: pathlib.Path, result: dict[str, list[pathlib.Path]], language: str) -> dict[str, list[pathlib.Path]]:
+    def _collect_dirs(
+        self,
+        dir_config: dict[str, typing.Any],
+        prefix: pathlib.Path,
+        result: dict[str, list[pathlib.Path]],
+        language: str,
+    ) -> dict[str, list[pathlib.Path]]:
         for key, value in dir_config.items():
             if key in (DEFAULT, SOURCE_TEMPLATE, TEST_TEMPLATE):
                 continue
@@ -621,16 +631,19 @@ def create_file(config: Config, file_arg: str) -> int:
 
         relative_path = full_path.relative_to(config.workspace_root)
 
-        template = config.get_template_for_path(language, relative_path.parent)
-        if template is None:
-            print(f'error: no configuration found for path {relative_path.parent}', file=sys.stderr)
-            return 1
-
-        source_template = template.get(SOURCE_TEMPLATE) or ''
-        test_template = template.get(TEST_TEMPLATE)
-
         handler = LANGUAGE_HANDLER_MAP[language]
-        handler.create_files(full_path.with_suffix(''), source_template, test_template)
+
+        if not full_path.exists():
+            template = config.get_template_for_path(language, relative_path.parent)
+            if template is None:
+                print(f'error: no configuration found for path {relative_path.parent}', file=sys.stderr)
+                return 1
+
+            source_template = template.get(SOURCE_TEMPLATE) or ''
+            test_template = template.get(TEST_TEMPLATE)
+            handler.create_files(full_path.with_suffix(''), source_template, test_template)
+        else:
+            print(f'file already exists: {full_path}')
 
         project_root = handler.find_project_root(full_path)
         if project_root:
