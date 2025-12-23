@@ -206,6 +206,10 @@ class LanguageHandler(abc.ABC):
     def init_project(self, base_path: pathlib.Path) -> None:
         pass
 
+    @abc.abstractmethod
+    def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
+        pass
+
 
 class PythonHandler(LanguageHandler):
     EXTENSION = '.py'
@@ -282,6 +286,17 @@ class PythonHandler(LanguageHandler):
             raise ValueError(f'{path} is not a file')
 
         return subprocess.run(['uv', 'run', 'python', str(path)], capture_output=False)
+
+    def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
+        current = file_path.parent if file_path.is_file() else file_path
+        depth = 0
+        max_depth = 50
+        while current != current.parent and depth < max_depth:
+            if (current / 'pyproject.toml').exists():
+                return current
+            current = current.parent
+            depth += 1
+        return None
 
 
 class RustHandler(LanguageHandler):
@@ -426,6 +441,9 @@ class RustHandler(LanguageHandler):
         else:
             mod_file.write_text(declaration)
 
+    def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
+        return self._find_cargo_root(file_path)
+
 
 class GoHandler(LanguageHandler):
     EXTENSION = '.go'
@@ -508,6 +526,9 @@ class GoHandler(LanguageHandler):
         gitignore_path = base_path / '.gitignore'
         if not gitignore_path.exists():
             download_gitignore('go', gitignore_path)
+
+    def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
+        return self._find_go_mod_root(file_path)
 
 
 LANGUAGE_HANDLER_MAP: dict[str, LanguageHandler] = {'python': PythonHandler(), 'rust': RustHandler(), 'go': GoHandler()}
@@ -608,9 +629,14 @@ def create_file(config: Config, file_arg: str) -> int:
         source_template = template.get(SOURCE_TEMPLATE) or ''
         test_template = template.get(TEST_TEMPLATE)
 
-        LANGUAGE_HANDLER_MAP[language].create_files(full_path.with_suffix(''), source_template, test_template)
+        handler = LANGUAGE_HANDLER_MAP[language]
+        handler.create_files(full_path.with_suffix(''), source_template, test_template)
 
-        subprocess.run([config.editor, str(full_path)])
+        project_root = handler.find_project_root(full_path)
+        if project_root:
+            subprocess.run([config.editor, str(project_root), str(full_path)])
+        else:
+            subprocess.run([config.editor, str(config.workspace_root), str(full_path)])
         return 0
 
     except ValueError as e:
