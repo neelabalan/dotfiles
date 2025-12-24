@@ -220,6 +220,10 @@ class LanguageHandler(abc.ABC):
     def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
         pass
 
+    @abc.abstractmethod
+    def check(self, path: pathlib.Path) -> subprocess.CompletedProcess[bytes]:
+        pass
+
 
 class PythonHandler(LanguageHandler):
     EXTENSION = '.py'
@@ -307,6 +311,25 @@ class PythonHandler(LanguageHandler):
             current = current.parent
             depth += 1
         return None
+
+    def check(self, path: pathlib.Path) -> subprocess.CompletedProcess[bytes]:
+        import py_compile
+
+        if path.is_file():
+            try:
+                py_compile.compile(str(path), doraise=True)
+                print(f'ok: {path}')
+                return subprocess.CompletedProcess(args=[], returncode=0, stdout=b'', stderr=b'')
+            except py_compile.PyCompileError as e:
+                print(f'fail: {path}: {e}', file=sys.stderr)
+                return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=str(e).encode())
+        else:
+            project_root = self.find_project_root(path)
+            if project_root:
+                return subprocess.run(['uv', 'run', 'ruff', 'check', str(path)], capture_output=False)
+            else:
+                print(f'error: {path} is not a file or project', file=sys.stderr)
+                return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=b'')
 
 
 class RustHandler(LanguageHandler):
@@ -454,6 +477,13 @@ class RustHandler(LanguageHandler):
     def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
         return self._find_cargo_root(file_path)
 
+    def check(self, path: pathlib.Path) -> subprocess.CompletedProcess[bytes]:
+        cargo_root = self._find_cargo_root(path) if path.is_file() else path
+        if not cargo_root:
+            print(f'error: no Cargo.toml found for {path}', file=sys.stderr)
+            return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=b'')
+        return subprocess.run(['cargo', 'check'], cwd=cargo_root, capture_output=False)
+
 
 class GoHandler(LanguageHandler):
     EXTENSION = '.go'
@@ -540,6 +570,17 @@ class GoHandler(LanguageHandler):
     def find_project_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
         return self._find_go_mod_root(file_path)
 
+    def check(self, path: pathlib.Path) -> subprocess.CompletedProcess[bytes]:
+        go_mod_root = self._find_go_mod_root(path) if path.is_file() else path
+        if go_mod_root:
+            return subprocess.run(['go', 'vet', './...'], cwd=go_mod_root, capture_output=False)
+        else:
+            if path.is_file():
+                return subprocess.run(['go', 'vet', str(path)], capture_output=False)
+            else:
+                print(f'error: no go.mod found for {path}', file=sys.stderr)
+                return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=b'')
+
 
 LANGUAGE_HANDLER_MAP: dict[str, LanguageHandler] = {'python': PythonHandler(), 'rust': RustHandler(), 'go': GoHandler()}
 
@@ -569,6 +610,27 @@ def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
         return result.returncode
     except Exception as e:
         print(f'error executing: {e}', file=sys.stderr)
+        return 1
+
+
+def check_command(path: pathlib.Path) -> int:
+    input_path = pathlib.Path(path)
+    full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
+
+    if not full_path.exists():
+        print(f'error: {full_path} does not exist', file=sys.stderr)
+        return 1
+
+    handler = detect_handler(full_path)
+    if not handler:
+        print(f'error: could not detect language for {full_path}', file=sys.stderr)
+        return 1
+
+    try:
+        result = handler.check(full_path)
+        return result.returncode
+    except Exception as e:
+        print(f'error checking: {e}', file=sys.stderr)
         return 1
 
 
@@ -691,6 +753,7 @@ Commands:
   init      Initialize workspace directory structure from config file
   validate  Validate the configuration file for errors
   create    Create a new source file (and optional test file) from template
+  check     Check syntax without compilation (cargo check, go vet, py_compile)
   test      Run tests for a file or project
   run       Execute a file or project
   open      Open workspace or language folder in configured editor
@@ -711,6 +774,8 @@ Examples:
   %(prog)s validate                                Validate config file
   %(prog)s create python/leetcode/solution.py     Create Python file from template
   %(prog)s create rust/misc/problem.rs            Create Rust file from template
+  %(prog)s check python/solution.py               Check Python file syntax
+  %(prog)s check rust/problem.rs                  Run cargo check
   %(prog)s test python/solution.py                Run tests for Python file
   %(prog)s test rust/problem.rs                   Run tests for Rust file
   %(prog)s run python/script.py                   Execute Python script
@@ -730,6 +795,9 @@ Examples:
     create_parser.add_argument(
         'path', type=str, help='File path to create (e.g., rust/leetcode/p01.rs, leetcode/p01.rs, solution.py)'
     )
+
+    check_parser = subparsers.add_parser('check', help='Check syntax without compilation')
+    check_parser.add_argument('path', type=pathlib.Path, help='Path to file or project to check')
 
     test_parser = subparsers.add_parser('test', help='Run tests for a file')
     test_parser.add_argument('path', type=pathlib.Path, help='Path to file to test')
@@ -760,6 +828,8 @@ Examples:
             return_code = 1
     elif args.command == 'create':
         return_code = create_file(config, args.path)
+    elif args.command == 'check':
+        return_code = check_command(args.path)
     elif args.command == 'test':
         return_code = run_command(args.path, ExecutionMode.TEST)
     elif args.command == 'run':
