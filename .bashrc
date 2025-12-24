@@ -147,3 +147,4 @@ code () {
     fi
 }
 
+pxcd() { cd "$(px ls | fzf)"; }

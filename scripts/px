@@ -634,6 +634,27 @@ def check_command(path: pathlib.Path) -> int:
         return 1
 
 
+def ls_command(config: Config) -> int:
+    try:
+        print(config.workspace_root)
+
+        all_dirs = config.get_all_directories()
+
+        all_paths = set()
+        for dirs in all_dirs.values():
+            for dir_path in dirs:
+                if dir_path.exists():
+                    all_paths.add(dir_path)
+
+        for path in sorted(all_paths):
+            print(path)
+
+        return 0
+    except Exception as e:
+        print(f'error listing directories: {e}', file=sys.stderr)
+        return 1
+
+
 def init_directories(config: Config) -> int:
     try:
         if not config.CONFIG_PATH.exists():
@@ -756,6 +777,7 @@ Commands:
   check     Check syntax without compilation (cargo check, go vet, py_compile)
   test      Run tests for a file or project
   run       Execute a file or project
+  ls        List all workspace directories
   open      Open workspace or language folder in configured editor
 
 Supported Languages:
@@ -769,6 +791,12 @@ Configuration:
   for each language. Each language can have multiple directories with custom
   source and test templates.
 
+Shell Integration (for cd command):
+  Add this function to your ~/.bashrc or ~/.zshrc:
+    pxcd() { cd "$(px ls | fzf)"; }
+
+  Then use: pxcd (opens fzf to select directory)
+
 Examples:
   %(prog)s init                                    Initialize workspace from config
   %(prog)s validate                                Validate config file
@@ -776,6 +804,7 @@ Examples:
   %(prog)s create rust/misc/problem.rs            Create Rust file from template
   %(prog)s check python/solution.py               Check Python file syntax
   %(prog)s check rust/problem.rs                  Run cargo check
+  %(prog)s ls                                     List all workspace directories
   %(prog)s test python/solution.py                Run tests for Python file
   %(prog)s test rust/problem.rs                   Run tests for Rust file
   %(prog)s run python/script.py                   Execute Python script
@@ -798,6 +827,8 @@ Examples:
 
     check_parser = subparsers.add_parser('check', help='Check syntax without compilation')
     check_parser.add_argument('path', type=pathlib.Path, help='Path to file or project to check')
+
+    subparsers.add_parser('ls', help='List all workspace directories')
 
     test_parser = subparsers.add_parser('test', help='Run tests for a file')
     test_parser.add_argument('path', type=pathlib.Path, help='Path to file to test')
@@ -830,6 +861,8 @@ Examples:
         return_code = create_file(config, args.path)
     elif args.command == 'check':
         return_code = check_command(args.path)
+    elif args.command == 'ls':
+        return_code = ls_command(config)
     elif args.command == 'test':
         return_code = run_command(args.path, ExecutionMode.TEST)
     elif args.command == 'run':
