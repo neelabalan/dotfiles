@@ -338,6 +338,7 @@ class DevEnvironmentConfig:
                 '.config/.ghc',
                 '.config/kitty',
                 '.config/mpv',
+                '.config/ranger'
             ]
         },
         'workstation': {
