@@ -773,7 +773,7 @@ def main() -> None:
 Commands:
   init      Initialize workspace directory structure from config file
   validate  Validate the configuration file for errors
-  create    Create a new source file (and optional test file) from template
+  new       Create a new file from template
   check     Check syntax without compilation (cargo check, go vet, py_compile)
   test      Run tests for a file or project
   run       Execute a file or project
@@ -800,8 +800,8 @@ Shell Integration (for cd command):
 Examples:
   %(prog)s init                                    Initialize workspace from config
   %(prog)s validate                                Validate config file
-  %(prog)s create python/leetcode/solution.py     Create Python file from template
-  %(prog)s create rust/misc/problem.rs            Create Rust file from template
+  %(prog)s new python/leetcode/solution.py        Create Python file from template
+  %(prog)s new rust/misc/problem.rs               Create Rust file from template
   %(prog)s check python/solution.py               Check Python file syntax
   %(prog)s check rust/problem.rs                  Run cargo check
   %(prog)s ls                                     List all workspace directories
@@ -820,8 +820,8 @@ Examples:
     subparsers.add_parser('init', help='Initialize directory structure from config')
     subparsers.add_parser('validate', help='Validate configuration file')
 
-    create_parser = subparsers.add_parser('create', help='Create a new file from template')
-    create_parser.add_argument(
+    new_parser = subparsers.add_parser('new', help='Create a new file from template')
+    new_parser.add_argument(
         'path', type=str, help='File path to create (e.g., rust/leetcode/p01.rs, leetcode/p01.rs, solution.py)'
     )
 
@@ -857,7 +857,7 @@ Examples:
         except ValueError as e:
             print(f'config validation failed: {e}', file=sys.stderr)
             return_code = 1
-    elif args.command == 'create':
+    elif args.command == 'new':
         return_code = create_file(config, args.path)
     elif args.command == 'check':
         return_code = check_command(args.path)
