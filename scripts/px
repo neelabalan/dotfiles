@@ -2,7 +2,9 @@
 
 import abc
 import argparse
+import dataclasses
 import json
+import os
 import pathlib
 import shutil
 import string
@@ -12,10 +14,22 @@ import textwrap
 import typing
 import urllib.request
 
-DEFAULT_DIR = 'misc'
-SOURCE_TEMPLATE = 'source_template'
-TEST_TEMPLATE = 'test_template'
-DEFAULT = 'default'
+
+@dataclasses.dataclass
+class DirConfig:
+    source_template: str = ''
+    test_template: str | None = None
+    is_default: bool = False
+    subdirs: dict[str, 'DirConfig'] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class HandlerConfig:
+    language: str
+    workspace_root: pathlib.Path
+    dirs: dict[str, DirConfig]
+    warn: bool = True
+    editor: str = 'code'
 
 
 class ExecutionMode:
@@ -26,10 +40,16 @@ class ExecutionMode:
 class Config:
     CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.px.json'
 
+    DEFAULT_DIR = 'misc'
+    SOURCE_TEMPLATE = 'source_template'
+    TEST_TEMPLATE = 'test_template'
+    DEFAULT = 'default'
+
     def __init__(self) -> None:
         self.config = self._load_config()
         self.workspace_root = pathlib.Path(self.config.get('workspace_root', '.'))
         self.editor = self.config.get('editor', 'code')
+        self.warn = os.getenv('WARN', '1') == '1'
 
     def _load_config(self) -> dict[str, typing.Any]:
         if self.CONFIG_PATH.exists():
@@ -47,8 +67,8 @@ class Config:
 
     def _make_template_dict(self, current: dict[str, typing.Any]) -> dict[str, str | None]:
         return {
-            SOURCE_TEMPLATE: current.get(SOURCE_TEMPLATE, ''),
-            TEST_TEMPLATE: current.get(TEST_TEMPLATE),
+            Config.SOURCE_TEMPLATE: current.get(Config.SOURCE_TEMPLATE, ''),
+            Config.TEST_TEMPLATE: current.get(Config.TEST_TEMPLATE),
         }
 
     def validate_config(self, valid_languages: set[str]) -> None:
@@ -97,10 +117,12 @@ class Config:
 
             current_path = path_parts + [key]
 
-            if value.get(DEFAULT) is True:
+            if value.get(Config.DEFAULT) is True:
                 default_counts[language] = default_counts.get(language, 0) + 1
 
-            nested_dirs = {k: v for k, v in value.items() if k not in (DEFAULT, SOURCE_TEMPLATE, TEST_TEMPLATE)}
+            nested_dirs = {
+                k: v for k, v in value.items() if k not in (Config.DEFAULT, Config.SOURCE_TEMPLATE, Config.TEST_TEMPLATE)
+            }
             if nested_dirs:
                 self._check_defaults_in_dirs(nested_dirs, language, default_counts, current_path)
 
@@ -127,12 +149,12 @@ class Config:
                 for part in remaining_parts:
                     if part in current:
                         current = current[part]
-                    elif SOURCE_TEMPLATE in current or DEFAULT in current:
+                    elif Config.SOURCE_TEMPLATE in current or Config.DEFAULT in current:
                         return self._make_template_dict(current)
                     else:
                         break
 
-                if SOURCE_TEMPLATE in current or DEFAULT in current:
+                if Config.SOURCE_TEMPLATE in current or Config.DEFAULT in current:
                     return self._make_template_dict(current)
 
         return None
@@ -165,7 +187,7 @@ class Config:
         language: str,
     ) -> dict[str, list[pathlib.Path]]:
         for key, value in dir_config.items():
-            if key in (DEFAULT, SOURCE_TEMPLATE, TEST_TEMPLATE):
+            if key in (Config.DEFAULT, Config.SOURCE_TEMPLATE, Config.TEST_TEMPLATE):
                 continue
             if isinstance(value, dict):
                 full_path = prefix / key
@@ -199,6 +221,9 @@ def download_gitignore(language: str, target_path: pathlib.Path) -> bool:
 
 class LanguageHandler(abc.ABC):
     EXTENSION: str
+
+    def __init__(self, config: HandlerConfig) -> None:
+        self.config = config
 
     @abc.abstractmethod
     def detect(self, path: pathlib.Path) -> bool:
@@ -235,7 +260,10 @@ class PythonHandler(LanguageHandler):
 
     def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
         if mode == ExecutionMode.TEST:
-            return subprocess.run(['uv', 'run', 'pytest', '-v', str(path)], capture_output=False)
+            args = ['uv', 'run', 'pytest', '-v', str(path)]
+            if not self.config.warn:
+                args.insert(3, '--disable-warnings')
+            return subprocess.run(args, capture_output=False)
         else:
             return self._run_script(path)
 
@@ -321,7 +349,8 @@ class PythonHandler(LanguageHandler):
                 print(f'ok: {path}')
                 return subprocess.CompletedProcess(args=[], returncode=0, stdout=b'', stderr=b'')
             except py_compile.PyCompileError as e:
-                print(f'fail: {path}: {e}', file=sys.stderr)
+                if self.config.warn:
+                    print(f'fail: {path}: {e}', file=sys.stderr)
                 return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=str(e).encode())
         else:
             project_root = self.find_project_root(path)
@@ -341,12 +370,18 @@ class RustHandler(LanguageHandler):
         return (path / 'Cargo.toml').exists()
 
     def execute(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
-        if path.is_file():
-            return self._run_single_file(path, mode)
-        else:
-            return self._run_cargo_project(path, mode)
+        env = os.environ.copy()
+        if not self.config.warn:
+            env['RUSTFLAGS'] = env.get('RUSTFLAGS', '') + ' -A warnings'
 
-    def _run_single_file(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
+        if path.is_file():
+            return self._run_single_file(path, mode, env)
+        else:
+            return self._run_cargo_project(path, mode, env)
+
+    def _run_single_file(
+        self, path: pathlib.Path, mode: str, env: dict | None = None
+    ) -> subprocess.CompletedProcess[bytes]:
         cargo_root = self._find_cargo_root(path)
 
         if not cargo_root:
@@ -355,16 +390,21 @@ class RustHandler(LanguageHandler):
         if mode == ExecutionMode.TEST:
             module_path = self._get_module_path(path, cargo_root)
             return subprocess.run(
-                ['cargo', 'test', '--lib', module_path, '--', '--nocapture'], cwd=cargo_root, capture_output=False
+                ['cargo', 'test', '--lib', module_path, '--', '--nocapture'],
+                cwd=cargo_root,
+                capture_output=False,
+                env=env,
             )
         else:
             raise NotImplementedError('run mode not supported for single Rust files')
 
-    def _run_cargo_project(self, path: pathlib.Path, mode: str) -> subprocess.CompletedProcess[bytes]:
+    def _run_cargo_project(
+        self, path: pathlib.Path, mode: str, env: dict | None = None
+    ) -> subprocess.CompletedProcess[bytes]:
         if mode == ExecutionMode.TEST:
-            return subprocess.run(['cargo', 'test', '--', '--nocapture'], cwd=path, capture_output=False)
+            return subprocess.run(['cargo', 'test', '--', '--nocapture'], cwd=path, capture_output=False, env=env)
         else:
-            return subprocess.run(['cargo', 'run'], cwd=path, capture_output=False)
+            return subprocess.run(['cargo', 'run'], cwd=path, capture_output=False, env=env)
 
     def _find_cargo_root(self, file_path: pathlib.Path) -> typing.Optional[pathlib.Path]:
         current = file_path.parent
@@ -482,7 +522,12 @@ class RustHandler(LanguageHandler):
         if not cargo_root:
             print(f'error: no Cargo.toml found for {path}', file=sys.stderr)
             return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=b'')
-        return subprocess.run(['cargo', 'check'], cwd=cargo_root, capture_output=False)
+
+        env = os.environ.copy()
+        if not self.config.warn:
+            env['RUSTFLAGS'] = env.get('RUSTFLAGS', '') + ' -A warnings'
+
+        return subprocess.run(['cargo', 'check'], cwd=cargo_root, capture_output=False, env=env)
 
 
 class GoHandler(LanguageHandler):
@@ -582,17 +627,73 @@ class GoHandler(LanguageHandler):
                 return subprocess.CompletedProcess(args=[], returncode=1, stdout=b'', stderr=b'')
 
 
-LANGUAGE_HANDLER_MAP: dict[str, LanguageHandler] = {'python': PythonHandler(), 'rust': RustHandler(), 'go': GoHandler()}
+HANDLER_CLASSES: dict[str, type[LanguageHandler]] = {
+    'python': PythonHandler,
+    'rust': RustHandler,
+    'go': GoHandler,
+}
 
 
-def detect_handler(path: pathlib.Path) -> typing.Optional[LanguageHandler]:
-    for handler in LANGUAGE_HANDLER_MAP.values():
+def build_handlers(config: Config) -> dict[str, LanguageHandler]:
+    handlers = {}
+    workspace_entries = config.config.get('workspace', [])
+
+    for entry in workspace_entries:
+        language = entry.get('language')
+        if not language or language not in HANDLER_CLASSES:
+            continue
+
+        dirs_config = entry.get('dirs', {})
+        parsed_dirs = _parse_dir_config(dirs_config)
+
+        handler_config = HandlerConfig(
+            language=language,
+            workspace_root=config.workspace_root,
+            dirs=parsed_dirs,
+            warn=config.warn,
+            editor=config.editor,
+        )
+
+        handler_class = HANDLER_CLASSES[language]
+        handlers[language] = handler_class(handler_config)
+
+    return handlers
+
+
+def _parse_dir_config(dirs: dict[str, typing.Any]) -> dict[str, DirConfig]:
+    result = {}
+
+    for key, value in dirs.items():
+        if not isinstance(value, dict):
+            continue
+
+        source_template = value.get(Config.SOURCE_TEMPLATE, '')
+        test_template = value.get(Config.TEST_TEMPLATE)
+        is_default = value.get(Config.DEFAULT, False)
+
+        subdirs = {
+            k: v for k, v in value.items() if k not in (Config.DEFAULT, Config.SOURCE_TEMPLATE, Config.TEST_TEMPLATE)
+        }
+        parsed_subdirs = _parse_dir_config(subdirs) if subdirs else {}
+
+        result[key] = DirConfig(
+            source_template=source_template,
+            test_template=test_template,
+            is_default=is_default,
+            subdirs=parsed_subdirs,
+        )
+
+    return result
+
+
+def detect_handler(path: pathlib.Path, handlers: dict[str, LanguageHandler]) -> typing.Optional[LanguageHandler]:
+    for handler in handlers.values():
         if handler.detect(path):
             return handler
     return None
 
 
-def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
+def run_command(path: pathlib.Path, handlers: dict[str, LanguageHandler], mode: str = ExecutionMode.TEST) -> int:
     input_path = pathlib.Path(path)
     full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
 
@@ -600,7 +701,7 @@ def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
         print(f'error: {full_path} does not exist', file=sys.stderr)
         return 1
 
-    handler = detect_handler(full_path)
+    handler = detect_handler(full_path, handlers)
     if not handler:
         print(f'error: could not detect language for {full_path}', file=sys.stderr)
         return 1
@@ -613,7 +714,7 @@ def run_command(path: pathlib.Path, mode: str = ExecutionMode.TEST) -> int:
         return 1
 
 
-def check_command(path: pathlib.Path) -> int:
+def check_command(path: pathlib.Path, handlers: dict[str, LanguageHandler]) -> int:
     input_path = pathlib.Path(path)
     full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
 
@@ -621,7 +722,7 @@ def check_command(path: pathlib.Path) -> int:
         print(f'error: {full_path} does not exist', file=sys.stderr)
         return 1
 
-    handler = detect_handler(full_path)
+    handler = detect_handler(full_path, handlers)
     if not handler:
         print(f'error: could not detect language for {full_path}', file=sys.stderr)
         return 1
@@ -655,7 +756,7 @@ def ls_command(config: Config) -> int:
         return 1
 
 
-def init_directories(config: Config) -> int:
+def init_directories(config: Config, handlers: dict[str, LanguageHandler]) -> int:
     try:
         if not config.CONFIG_PATH.exists():
             config.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -671,7 +772,7 @@ def init_directories(config: Config) -> int:
                 dir_path.mkdir(parents=True, exist_ok=True)
                 print(f'created: {dir_path}')
 
-            handler = LANGUAGE_HANDLER_MAP.get(language)
+            handler = handlers.get(language)
             if not handler:
                 continue
 
@@ -694,7 +795,7 @@ def init_directories(config: Config) -> int:
         return 1
 
 
-def create_file(config: Config, file_arg: str) -> int:
+def create_file(config: Config, handlers: dict[str, LanguageHandler], file_arg: str) -> int:
     try:
         input_path = pathlib.Path(file_arg)
         full_path = input_path if input_path.is_absolute() else pathlib.Path.cwd() / input_path
@@ -703,18 +804,18 @@ def create_file(config: Config, file_arg: str) -> int:
             print(f"error: filename cannot start with a digit: '{full_path.name}'", file=sys.stderr)
             return 1
 
-        for lang, handler in LANGUAGE_HANDLER_MAP.items():
+        for lang, handler in handlers.items():
             if full_path.suffix == handler.EXTENSION:
                 language = lang
                 break
         else:
-            supported = ', '.join(h.EXTENSION for h in LANGUAGE_HANDLER_MAP.values())
+            supported = ', '.join(h.EXTENSION for h in handlers.values())
             print(f'error: unsupported file extension {full_path.suffix}. Supported: {supported}', file=sys.stderr)
             return 1
 
         relative_path = full_path.relative_to(config.workspace_root)
 
-        handler = LANGUAGE_HANDLER_MAP[language]
+        handler = handlers[language]
 
         if not full_path.exists():
             template = config.get_template_for_path(language, relative_path.parent)
@@ -722,8 +823,8 @@ def create_file(config: Config, file_arg: str) -> int:
                 print(f'error: no configuration found for path {relative_path.parent}', file=sys.stderr)
                 return 1
 
-            source_template = template.get(SOURCE_TEMPLATE) or ''
-            test_template = template.get(TEST_TEMPLATE)
+            source_template = template.get(Config.SOURCE_TEMPLATE) or ''
+            test_template = template.get(Config.TEST_TEMPLATE)
             handler.create_files(full_path.with_suffix(''), source_template, test_template)
         else:
             print(f'file already exists: {full_path}')
@@ -743,11 +844,11 @@ def create_file(config: Config, file_arg: str) -> int:
         return 1
 
 
-def open_folder(config: Config, language: typing.Optional[str] = None) -> int:
+def open_folder(config: Config, handlers: dict[str, LanguageHandler], language: typing.Optional[str] = None) -> int:
     try:
         if language:
-            if language not in LANGUAGE_HANDLER_MAP:
-                supported = ', '.join(LANGUAGE_HANDLER_MAP.keys())
+            if language not in handlers:
+                supported = ', '.join(handlers.keys())
                 print(f'error: unsupported language {language}. Supported: {supported}', file=sys.stderr)
                 return 1
             folder_path = config.workspace_root / language
@@ -843,32 +944,35 @@ Examples:
 
     config = Config()
 
+    # Build handlers with their configurations
+    handlers = build_handlers(config)
+
     if args.command == 'init':
         try:
-            config.validate_config(set(LANGUAGE_HANDLER_MAP.keys()))
+            config.validate_config(set(HANDLER_CLASSES.keys()))
         except ValueError as e:
             print(f'config validation failed: {e}', file=sys.stderr)
             sys.exit(1)
-        return_code = init_directories(config)
+        return_code = init_directories(config, handlers)
     elif args.command == 'validate':
         try:
-            config.validate_config(set(LANGUAGE_HANDLER_MAP.keys()))
+            config.validate_config(set(HANDLER_CLASSES.keys()))
             return_code = 0
         except ValueError as e:
             print(f'config validation failed: {e}', file=sys.stderr)
             return_code = 1
     elif args.command == 'new':
-        return_code = create_file(config, args.path)
+        return_code = create_file(config, handlers, args.path)
     elif args.command == 'check':
-        return_code = check_command(args.path)
+        return_code = check_command(args.path, handlers)
     elif args.command == 'ls':
         return_code = ls_command(config)
     elif args.command == 'test':
-        return_code = run_command(args.path, ExecutionMode.TEST)
+        return_code = run_command(args.path, handlers, ExecutionMode.TEST)
     elif args.command == 'run':
-        return_code = run_command(args.path, ExecutionMode.RUN)
+        return_code = run_command(args.path, handlers, ExecutionMode.RUN)
     elif args.command == 'open':
-        return_code = open_folder(config, args.language)
+        return_code = open_folder(config, handlers, args.language)
     else:
         parser.print_help()
         return_code = 0
