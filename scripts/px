@@ -56,12 +56,12 @@ class Config:
             return json.loads(self.CONFIG_PATH.read_text())  # type: ignore[no-any-return]
 
         return {
-            'workspace_root': str(pathlib.Path.home() / 'experiments'),
+            'workspace_root': str(pathlib.Path.home() / 'code/experiments'),
             'editor': 'code',
             'workspace': [
-                {'language': 'python', 'dirs': {'python': {'misc': {'default': True}}}},
-                {'language': 'rust', 'dirs': {'rust': {'misc': {'default': True}}}},
-                {'language': 'go', 'dirs': {'go': {'misc': {'default': True}}}},
+                {'language': 'python', 'dirs': {'pylang': {'misc': {'default': True}}}},
+                {'language': 'rust', 'dirs': {'rustlang': {'misc': {'default': True}}}},
+                {'language': 'go', 'dirs': {'golang': {'misc': {'default': True}}}},
             ],
         }
 
