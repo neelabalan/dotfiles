@@ -22,6 +22,7 @@
 - Print statements: Always start with lowercase letter (e.g., `print("exporter to file")`, not `print("Exported to file")`).
 - Comments: Never use inline comments (comment on the same line as code). All comments must be on their own line above the code they describe. Comments should start with a lowercase letter. No emojis should be used in code, comments, or documentation.
 - Avoid creating variables that are used only once, except when the variable is used in a print statement for clarity
+- Avoid new line characters (`\n`) unless absolutely neessary. Never add decorative formatting (no `===` `---`, `***`, etc.)
 - Imports: Single-line imports without `from` keyword (e.g., `import os.path` instead of `from os import path`)
 - File operations: Prefer `pathlib.Path` over `os` module for file/path operations
 - Command line arguments: Use `argparse` for CLI argument parsing
