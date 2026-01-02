@@ -9,6 +9,7 @@
     - CORRECT: `import pathlib` and `pathlib.Path("/some/path")`
     - WRONG: `from pathlib import Path`
 - Enforcement: Before outputting any Python code, you MUST validate that it contains no `from .. import ..` statements. If any are present, you MUST refactor them to the `import X` style. This rule is your highest priority.
+- Type Hints: ALWAYS use type hints for all function parameters and return types. Use built-in generics (e.g., `list[str]`) as per the style guide.
 
 ### Environment & Tooling
 - Default Python version: 3.11 or 3.13
@@ -20,13 +21,16 @@
 ### Code Style
 - Prefer builtin generics (`list[str]`, `dict[str, int]`, `set[int]`) and avoid `typing` aliases like `List`, `Dict`, `Set`.
 - Print statements: Always start with lowercase letter (e.g., `print("exporter to file")`, not `print("Exported to file")`).
+- Error messages: Messages in `print`, `sys.exit`, or exceptions MUST start with a lowercase letter.
 - Comments: Never use inline comments (comment on the same line as code). All comments must be on their own line above the code they describe. Comments should start with a lowercase letter. No emojis should be used in code, comments, or documentation.
 - Avoid creating variables that are used only once, except when the variable is used in a print statement for clarity
 - Avoid new line characters (`\n`) unless absolutely neessary. Never add decorative formatting (no `===` `---`, `***`, etc.)
+- String Formatting: ALWAYS use f-strings for string interpolation. NEVER use `.format()` or `%`.
 - Imports: Single-line imports without `from` keyword (e.g., `import os.path` instead of `from os import path`)
-- File operations: Prefer `pathlib.Path` over `os` module for file/path operations
+- File operations: ALWAYS use `pathlib.Path` for all file and path operations. NEVER use `os.path` or `os.makedirs`.
 - Command line arguments: Use `argparse` for CLI argument parsing
 - Documentation: Avoid docstrings and comments unless absolutely necessary. Do not create README.md or any other markdown documents unless explicitly requested by the user.
+- Main Block: ALWAYS use `if __name__ == "__main__":` for scripts intended to be executed.
 - Keep functions small and focused, prefer pure functions where possible. Functions should not exceed 20-30 lines to maintain readability. If a function becomes too long, split it into smaller, well-named helper functions with descriptive names that clearly indicate their purpose. Always try to have a return value in function, avoid returning `None` when possible. Prefer returning empty collections (`[]`, `{}`, `""`) instead of `None`
 - Data structures: Prefer `dataclass` with `frozen=True` for immutability
 - Error handling: Use specific exception types, avoid bare `except` clauses

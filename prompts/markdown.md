@@ -8,18 +8,22 @@
     - CORRECT: `# Title`, `### Section`, `##### Subsection`
     - WRONG: `## Title`, `#### Section`, `###### Subsection`
 - Enforcement: Before outputting any markdown, validate that all headings use odd number of hashes. If any even-numbered headings exist, convert them to the nearest odd level.
+- Continuity: NEVER skip heading levels (e.g., do not jump from `#` to `#####` without a `###` in between).
 
 ### Style principles
 
 - No emojis anywhere in the document
 - Avoid bold text (`**bold` or `__bold__`) unless absolutely necessary for critical emphasis
 - Prefer bullet points and indentation over creating excessive headings
+- List Markers: ALWAYS use `-` for unordered lists.
 - Balance bullet points with prose - Use paragraphs when explaining concepts that flow naturally as sentences
 - Use backticks for code snippets, variable names, file paths, technical terms and commands
+- Code Blocks: ALWAYS specify the language for syntax highlighting (e.g., ```python, ```bash).
 - Keep writing concise and direct
 
 ### Document structure
 - Use headings sparingly - prefer nested bullet points for sub-topics
+- Footnotes: ALWAYS place footnotes at the very end of the document.
 - Example structure:
     ```markdown
     # Main Topic
