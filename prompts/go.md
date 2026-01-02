@@ -7,7 +7,7 @@
 - Linter: golangci-lint
 - For new projects: Initialize with `go mod init`, run with `go run`, build with `go build`
 
-## Code Style
+### Code Style
 - Formatting: Always use gofmt or goimports, follow standard Go formatting conventions
 - Naming: Use camelCase for unexported names, PascalCase for exported names. Keep names concise and clear. Avoid stuttering (e.g., `http.HTTPServer` should be `http.Server`)
 - Error handling: Always check errors explicitly, never ignore them. Return errors as the last return value. Use `errors.New()` or `fmt.Errorf()` for error creation
@@ -16,11 +16,11 @@
 - Functions: Keep functions small and focused. Avoid deep nesting (max 2-3 levels). Extract complex logic into helper functions
 - Comments: Use package-level comments for all packages. Add comments for exported functions, types, and constants. Comments should be complete sentences starting with the name being documented
 - Documentation: Avoid unnecessary comments for obvious code. Document non-obvious behavior, edge cases, and public APIs
-- Concurrency: Use goroutines and channels appropriately. Avoid shared state when possible. Use sync package primitives when shared state is necessary
+- Concurrency: Use goroutines and channels appropriately. Avoid shared state when possible. Use `sync` package primitives when shared state is necessary
 - Dependencies: Minimize external dependencies, prefer standard library
-- Memory: Be mindful of allocations, reuse buffers when appropriate, use sync.Pool for frequently allocated objects
+- Memory: Be mindful of allocations, reuse buffers when appropriate, use `sync.Pool` for frequently allocated objects
 
-## Design Principles
+### Design Principles
 - For libraries and services: Apply SOLID principles, focus on clear interfaces and separation of concerns
 - For simple tools and scripts: Prioritize simplicity and readability over complex abstractions
 - Composition over inheritance: Use struct embedding and interfaces for code reuse

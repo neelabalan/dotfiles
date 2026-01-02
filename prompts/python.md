@@ -17,7 +17,7 @@
 - For new projects: Initialize with `uv init`, add ruff as dev dependency (`uv add --dev ruff`), and run the project with `uv run`
 - For individual scripts: Use python3.11 directly and run ruff with `uv run ruff check <script.py>` or `uv run ruff format <script.py>`
 
-## Code Style
+### Code Style
 - Prefer builtin generics (`list[str]`, `dict[str, int]`, `set[int]`) and avoid `typing` aliases like `List`, `Dict`, `Set`.
 - Print statements: Always start with lowercase letter (e.g., `print("exporter to file")`, not `print("Exported to file")`).
 - Comments: Never use inline comments (comment on the same line as code). All comments must be on their own line above the code they describe. Comments should start with a lowercase letter. No emojis should be used in code, comments, or documentation.
@@ -34,7 +34,7 @@
 - Memory: Optimize for memory efficiency, avoid unnecessary allocations
 - Naming: Use descriptive names, follow snake_case for functions/variables, PascalCase for classes
 
-## Design Principles
+### Design Principles
 - For applications and libraries: Apply SOLID principles strictly (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion)
 - For simple scripts: SOLID principles can be relaxed, prioritize readability and simplicity
 - Use composition over inheritance
