@@ -323,24 +323,7 @@ class DevEnvironmentConfig:
     }
 
     PROFILES: dict[str, dict[str, typing.Any]] = {
-        'just-dotfiles': {
-            'dotfiles': [
-                '.bashrc',
-                '.bash_profile',
-                '.tmux.conf',
-                '.haskeline',
-                '.ruff.toml',
-                '.vimrc',
-                '.visidatarc',
-                '.ipython',
-                '.config/starship.toml',
-                '.config/nvim',
-                '.config/.ghc',
-                '.config/kitty',
-                '.config/mpv',
-                '.config/ranger'
-            ]
-        },
+        'just-dotfiles': {},
         'workstation': {
             'distro': 'alma',
             'arch': 'x86_64',
@@ -367,13 +350,6 @@ class DevEnvironmentConfig:
                 'ssh',
                 'docker',
                 'dotfiles',
-            ],
-            'dotfiles': [
-                '.bashrc',
-                '.bash_profile',
-                '.config/starship.toml',
-                '.config/nvim',
-                '.tmux.conf',
             ],
         },
         'workstation-arm': {
@@ -407,12 +383,6 @@ class DevEnvironmentConfig:
                 'docker',
                 'dotfiles',
             ],
-            'dotfiles': [
-                '.bashrc',
-                '.config/starship.toml',
-                '.config/nvim',
-                '.tmux.conf',
-            ],
         },
         'python-minimal': {
             'distro': 'alma',
@@ -421,7 +391,6 @@ class DevEnvironmentConfig:
             'exposed_ports': [8000],
             'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
             'tools': ['python', 'fzf', 'ripgrep', 'ipython', 'dotfiles'],
-            'dotfiles': ['.bashrc', '.gitconfig'],
         },
         'python-minimal-arm': {
             'distro': 'alma',
@@ -430,7 +399,6 @@ class DevEnvironmentConfig:
             'exposed_ports': [8000],
             'volumes': [{'source': '~/code', 'target': '/home/blue/code', 'mode': 'rw'}],
             'tools': ['python', 'fzf', 'ripgrep', 'ipython', 'dotfiles'],
-            'dotfiles': ['.bashrc', '.gitconfig'],
         },
         'ml-cuda': {
             'distro': 'cuda',
@@ -444,7 +412,6 @@ class DevEnvironmentConfig:
                     'mode': 'rw',
                 }
             ],
-            'dotfiles': ['.bashrc', '.vimrc', '.gitconfig'],
             'tools': ['python', 'starship', 'neovim', 'dotfiles'],
         },
         'workstation-minimal': {
@@ -468,13 +435,6 @@ class DevEnvironmentConfig:
                 'sysutils',
                 'ssh',
                 'dotfiles',
-            ],
-            'dotfiles': [
-                '.bashrc',
-                '.bash_profile',
-                '.config/starship.toml',
-                '.config/nvim',
-                '.tmux.conf',
             ],
         },
     }
@@ -680,12 +640,23 @@ class DevEnvironmentConfig:
                 depends_on=['curl'],
                 setup_template=[pkg.docker_install_cmd()],
             ),
-            'dotfiles': Tool(
-                depends_on=['python'],
-                copy=[{'source': '.', 'destination': '.dotfiles/'}],
+            'dotsync': ToolWithArch(
+                depends_on=['curl', 'git'],
+                version='0.0.2',
+                arch_map={'x86_64': 'linux-x86_64', 'aarch64': 'macos-aarch64'},
                 setup_template=[
-                    'ls ~/.dotfiles/',
-                    f'uvx python3.11 ~/.dotfiles/scripts/dnv dotsync --source-dir=~/.dotfiles/ --profile={self.profile}',
+                    'curl -L https://github.com/neelabalan/tools/releases/download/dotsync-v<%>version/dotsync-<%>arch.tar.gz | tar xz',
+                    'sudo mv dotsync /usr/local/bin/',
+                ],
+            ),
+            'dotfiles': Tool(
+                depends_on=['dotsync'],
+                copy=[
+                    {'source': 'dotsync.json', 'destination': 'dotsync.json'},
+                ],
+                setup_template=[
+                    'dotsync init --config $HOME/dotsync.json',
+                    f'dotsync setup --profile {self.profile}',
                 ]
                 if self.profile
                 else [],
@@ -870,49 +841,6 @@ class SetupShBuilder:
         return string.Template(self.SETUP_SH_BASE_TEMPLATE).substitute(
             tool_functions='\n'.join(functions), main_cli=self.MAIN_CLI
         )
-
-
-class DotfilesManager:
-    def __init__(self, dotfiles_dir: pathlib.Path | None = None) -> None:
-        self.dotfiles_dir = dotfiles_dir or (pathlib.Path.home() / '.dotfiles')
-        self.home_dir = pathlib.Path.home()
-        self.backup_dir = self.home_dir / f'.dotfiles-backup-{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'
-
-    def create_symlink(self, source: pathlib.Path, target: pathlib.Path) -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-
-        # TODO: don't do auto backup
-        if target.exists() and not target.is_symlink():
-            self.backup_dir.mkdir(parents=True, exist_ok=True)
-            backup_path = self.backup_dir / target.name
-            logger.info(f'backing up existing {target} to {backup_path}')
-            shutil.move(str(target), str(backup_path))
-        elif target.is_symlink():
-            target.unlink()
-
-        target.symlink_to(source)
-        logger.info(f'created symlink: {target} -> {source}')
-
-    def install_dotfiles(self, files: list[str], source_dir: str | None = None) -> None:
-        if source_dir:
-            source_base = pathlib.Path(source_dir).expanduser().resolve()
-        else:
-            source_base = self.dotfiles_dir
-
-        target_base = self.home_dir
-
-        for file_path in files:
-            source = source_base / file_path
-            target = target_base / file_path
-
-            if not source.exists():
-                logger.warning(f"source file doesn't exist: {source}")
-                continue
-
-            try:
-                self.create_symlink(source, target)
-            except Exception as e:
-                logger.error(f'error creating symlink for {file_path}: {e}')
 
 
 class ArtifactRepository:
@@ -1336,22 +1264,6 @@ class CommandHandler:
 
         DevContainerManager.exec_shell(container_name, self.args.shell)
 
-    def handle_dotsync(self) -> None:
-        if self.args.profile:
-            if self.args.profile not in DevEnvironmentConfig.PROFILES:
-                available = list(DevEnvironmentConfig.PROFILES.keys())
-                logger.error(f"profile '{self.args.profile}' not found. Available: {available}")
-                sys.exit(1)
-
-            config = DevEnvironmentConfig.from_profile(self.args.profile)
-            profile_data = config.get_profile_data()
-
-            if 'dotfiles' not in profile_data:
-                logger.error(f"no dotfiles configuration found in profile '{self.args.profile}'")
-                sys.exit(1)
-
-            DotfilesManager().install_dotfiles(profile_data['dotfiles'], self.args.source_dir)
-
     def handle(self) -> None:
         match self.args.command:
             case 'build':
@@ -1366,8 +1278,6 @@ class CommandHandler:
                 self.handle_rm()
             case 'shell':
                 self.handle_shell()
-            case 'dotsync':
-                self.handle_dotsync()
             case _:
                 print('command not supported')
 
@@ -1383,7 +1293,6 @@ Commands:
   ls        List all devenv containers (running and stopped)
   rm        Remove one or more devenv containers
   shell     Open a shell in an existing container
-  dotsync   Sync dotfiles to home directory based on profile configuration
 
 Profiles:
   workstation        Full development environment (x86_64) with Python, Node,
@@ -1404,7 +1313,6 @@ Examples:
   %(prog)s shell mycontainer                       Shell into existing container
   %(prog)s rm mycontainer                          Remove a container
   %(prog)s rm container1 container2 --volumes      Remove containers and volumes
-  %(prog)s dotsync --profile just-dotfiles         Sync dotfiles to home directory
 
 Environment:
   DEBUG=1            Enable debug logging with file output to ~/.dotfiles/.logs/dnv/
@@ -1434,15 +1342,6 @@ Environment:
     # craft command args
     craft_parser = subparsers.add_parser('craft', help='generate Dockerfile')
     craft_parser.add_argument(
-        '--profile',
-        default='workstation',
-        help='profile name to use (default: workstation)',
-    )
-
-    # dotsync command args
-    dotsync_parser = subparsers.add_parser('dotsync', help='sync dotfiles')
-    dotsync_parser.add_argument('--source-dir', help='source directory')
-    dotsync_parser.add_argument(
         '--profile',
         default='workstation',
         help='profile name to use (default: workstation)',
@@ -1478,9 +1377,6 @@ Environment:
             if 'tools' in profile_data:
                 tools = profile_data['tools']
                 print(f'  tools: {", ".join(tools)}')
-            if 'dotfiles' in profile_data:
-                dotfiles = profile_data['dotfiles']
-                print(f'  dotfiles: {len(dotfiles)} files')
             print()
         return
 
