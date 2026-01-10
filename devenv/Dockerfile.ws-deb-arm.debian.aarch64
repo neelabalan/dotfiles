@@ -1,0 +1,209 @@
+# NOTE: This Dockerfile is generated. Do not edit manually.
+FROM debian:bookworm
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+ENV SHELL=/bin/bash
+
+RUN echo "Acquire::Retries \"3\";" > /etc/apt/apt.conf.d/80-retries && \
+    apt update && apt upgrade -y && \
+    apt install -y sudo
+
+ARG USERNAME=blue
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+USER $USERNAME
+
+WORKDIR /home/$USERNAME
+
+ENV HOME=/home/$USERNAME
+
+# stage: git
+# setup for git
+RUN sudo apt install -y git
+
+
+# stage: make
+# setup for make
+RUN sudo apt install -y make
+
+
+# stage: gcc
+# setup for gcc
+RUN sudo apt install -y build-essential
+
+
+# stage: vim
+# setup for vim
+RUN sudo apt install -y vim
+
+
+# stage: curl
+# setup for curl
+RUN sudo apt install -y curl
+
+
+# stage: tar
+# setup for tar
+RUN sudo apt install -y tar
+
+
+# stage: python
+# setting Env for python
+ENV PATH=$HOME/.local/bin:$PATH
+
+# setup for python
+RUN curl -LsSf https://astral.sh/uv/0.7.9/install.sh | sh && uv python install 3.11 3.13
+
+
+# stage: node
+# setup for node
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \
+    export NVM_DIR=$HOME/.nvm && \
+    source $NVM_DIR/nvm.sh && nvm install 22
+
+
+# stage: rust
+# setting Env for rust
+ENV PATH=$PATH:$HOME/.cargo/bin
+
+# setup for rust
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
+
+
+# stage: go
+# setting Env for go
+ENV PATH=$PATH:/usr/local/go/bin
+
+# setup for go
+RUN curl -LO https://go.dev/dl/go1.23.9.linux-arm64.tar.gz && \
+    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-arm64.tar.gz && \
+    rm go1.23.9.linux-arm64.tar.gz && \
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc
+
+
+# stage: unzip
+# setup for unzip
+RUN sudo apt install -y unzip
+
+
+# stage: zip
+# setup for zip
+RUN sudo apt install -y zip
+
+
+# stage: sdkman
+# setup for sdkman
+RUN curl -s "https://get.sdkman.io" | bash
+
+
+# stage: neovim
+# setup for neovim
+RUN curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-linux-arm64.tar.gz && \
+    sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-arm64.tar.gz && \
+    sudo ln -sf /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim && \
+    rm nvim-linux-arm64.tar.gz
+
+
+# stage: starship
+# setup for starship
+RUN curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config
+
+
+# stage: fzf
+# setup for fzf
+RUN curl -LO https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_arm64.tar.gz && \
+    tar -xzf fzf-0.56.3-linux_arm64.tar.gz && \
+    sudo mv fzf /usr/local/bin/ && rm fzf-0.56.3-linux_arm64.tar.gz
+
+
+# stage: ripgrep
+# setup for ripgrep
+RUN curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz && \
+    tar -xzf ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz && \
+    sudo mv ripgrep-14.1.1-aarch64-unknown-linux-gnu/rg /usr/local/bin/ && \
+    rm -rf ripgrep-14.1.1-aarch64-unknown-linux-gnu*
+
+
+# stage: tokei
+# setup for tokei
+RUN curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-aarch64-unknown-linux-gnu.tar.gz && \
+    tar -xzf tokei-aarch64-unknown-linux-gnu.tar.gz && \
+    sudo mv tokei /usr/local/bin/ && rm tokei-aarch64-unknown-linux-gnu.tar.gz
+
+
+# stage: eza
+# setup for eza
+RUN curl -L https://github.com/eza-community/eza/releases/download/v0.21.1/eza_aarch64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp && \
+    sudo mv /tmp/eza /usr/local/bin/
+
+
+# stage: kubectl
+# setup for kubectl
+RUN curl -LO https://dl.k8s.io/release/v1.33.1/bin/linux/arm64/kubectl && \
+    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl
+
+
+# stage: ipython
+# setup for ipython
+RUN uv tool install --python 3.11 ipython
+
+
+# stage: ranger
+# setup for ranger
+RUN uv tool install ranger-fm
+
+
+# stage: sysutils
+# setup for sysutils
+RUN sudo apt install -y procps iproute2
+
+
+# stage: openssh
+# setup for openssh
+RUN sudo apt install -y openssh-server
+
+
+# stage: ssh
+# setup for ssh
+RUN sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config && \
+    sudo ssh-keygen -A
+
+
+# stage: docker
+# setup for docker
+RUN sudo install -m 0755 -d /etc/apt/keyrings && \
+    sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+    sudo chmod a+r /etc/apt/keyrings/docker.asc && \
+    echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    sudo apt-get update -y && \
+    sudo apt-get install docker-ce-cli -y
+
+
+# stage: dotsync
+# setup for dotsync
+RUN curl -L https://github.com/neelabalan/tools/releases/download/dotsync-v0.0.2/dotsync-linux-aarch64.tar.gz | tar xz
+RUN sudo mv dotsync /usr/local/bin/
+
+
+# stage: dotfiles
+# file copy for dotfiles
+COPY --chown=$USERNAME:$USERNAME dotsync.json dotsync.json
+# setup for dotfiles
+RUN dotsync init --config $HOME/dotsync.json
+RUN dotsync setup --profile ws-deb-arm
+
+
+
+# SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data
+ARG PASSWORD=admin
+RUN echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
