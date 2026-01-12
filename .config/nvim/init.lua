@@ -1,4 +1,4 @@
--- Bootstrap lazy.nvim
+-- bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
   vim.fn.system({
@@ -12,39 +12,23 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
--- Plugin configuration
+-- plugin configuration
 require("lazy").setup({
-  -- Common utilities
+  -- common utilities
   "nvim-lua/plenary.nvim",           
   {
-    -- Auto pairs for brackets, quotes, etc.
+    -- auto pairs for brackets, quotes, etc.
     "windwp/nvim-autopairs",
     event = "InsertEnter",
     config = function()
       require("nvim-autopairs").setup({
+        -- check tree sitter
         check_ts = true,
-        ts_config = {
-          lua = {'string', 'source'},
-          javascript = {'string', 'template_string'},
-          java = false,
-        },
-        disable_filetype = { "TelescopePrompt", "spectre_panel" },
-        fast_wrap = {
-          map = '<M-e>',
-          chars = { '{', '[', '(', '"', "'" },
-          pattern = string.gsub([[ [%'%"%)%>%]%)%}%,] ]], '%s+', ''),
-          offset = 0,
-          end_key = '$',
-          keys = 'qwertyuiopzxcvbnmasdfghjkl',
-          check_comma = true,
-          highlight = 'PmenuSel',
-          highlight_grey = 'LineNr'
-        },
       })
     end
   },
   {
-    -- Better indentation visualization
+    -- better indentation visualization
     "lukas-reineke/indent-blankline.nvim",
     main = "ibl",
     config = function()
@@ -73,7 +57,7 @@ require("lazy").setup({
     end
   },           
   {
-    -- Modern fuzzy finder
+    -- modern fuzzy finder
     "nvim-telescope/telescope.nvim",  
     dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
@@ -82,7 +66,7 @@ require("lazy").setup({
     end
   },
   {
-    -- Modern file explorer
+    -- modern file explorer
     "nvim-tree/nvim-tree.lua",        
     config = function()
       require("nvim-tree").setup()
@@ -90,34 +74,40 @@ require("lazy").setup({
     end
   },
   {
-    -- Modern statusline
+    -- modern statusline
     "nvim-lualine/lualine.nvim",      
     config = function()
-      -- Custom theme based on your color scheme
+      -- custom theme based on your color scheme
       local custom_theme = {
         normal = {
-          a = { fg = '#000000', bg = '#81a2be' },  -- Blue background
+          -- blue background
+          a = { fg = '#000000', bg = '#81a2be' },
           b = { fg = '#ffffff', bg = '#444444' },
           c = { fg = '#a8a8a8', bg = '#242424' }
         },
         insert = {
-          a = { fg = '#000000', bg = '#9ec400' },  -- Green background
+          -- green background
+          a = { fg = '#000000', bg = '#9ec400' },
           b = { fg = '#ffffff', bg = '#444444' }
         },
         visual = {
-          a = { fg = '#000000', bg = '#f0c674' },  -- Yellow background
+          -- yellow background
+          a = { fg = '#000000', bg = '#f0c674' },
           b = { fg = '#ffffff', bg = '#444444' }
         },
         replace = {
-          a = { fg = '#ffffff', bg = '#c70000' },  -- Red background
+          -- red background
+          a = { fg = '#ffffff', bg = '#c70000' },
           b = { fg = '#ffffff', bg = '#444444' }
         },
         command = {
-          a = { fg = '#000000', bg = '#b77ee0' },  -- Purple background
+          -- purple background
+          a = { fg = '#000000', bg = '#b77ee0' },
           b = { fg = '#ffffff', bg = '#444444' }
         },
         inactive = {
-          a = { fg = '#70c0ba', bg = '#444444' },  -- Cyan for inactive
+          -- cyan for inactive
+          a = { fg = '#70c0ba', bg = '#444444' },
           b = { fg = '#666666', bg = '#353535' },
           c = { fg = '#969696', bg = '#242424' }
         }
@@ -150,7 +140,7 @@ require("lazy").setup({
     end
   },
   {
-    -- VSCode theme
+    -- vscode theme
     "Mofiqul/vscode.nvim",            
     config = function()
       require('vscode').setup({
@@ -163,7 +153,7 @@ require("lazy").setup({
   }
 })
 
--- Basic settings
+-- basic settings
 vim.opt.number = true
 vim.opt.numberwidth = 2
 vim.opt.expandtab = true
@@ -182,10 +172,14 @@ vim.opt.mouse = "a"
 vim.opt.guicursor = "n-v-c-i:block"
 vim.opt.showmode = false
 
--- Python indentation configuration using official Neovim method
+-- python indentation configuration using official Neovim method
 vim.g.python_indent = {
-  open_paren = 'shiftwidth()',      -- 4 spaces after open paren (instead of default 8)
-  nested_paren = 'shiftwidth()',    -- 4 spaces for nested parens
-  continue = 'shiftwidth()',        -- 4 spaces for continuation lines (instead of default 8)
-  closed_paren_align_last_line = false, -- Align closing paren with opening line
+  -- 4 spaces after open paren (instead of default 8)
+  open_paren = 'shiftwidth()',
+  -- 4 spaces for nested parens
+  nested_paren = 'shiftwidth()',
+  -- 4 spaces for continuation lines (instead of default 8)
+  continue = 'shiftwidth()',
+  -- Align closing paren with opening line
+  closed_paren_align_last_line = false
 }

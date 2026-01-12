@@ -4,7 +4,7 @@
     "path": "~/.dotfiles",
     "backup_path": "~/.dotfiles/backup/",
     "profiles": {
-        "just-dotfiles": [
+        "workstation": [
             ".bashrc",
             ".bash_profile",
             ".tmux.conf",
@@ -20,25 +20,37 @@
             ".config/mpv",
             ".config/ranger"
         ],
-        "workstation": [
-            ".bashrc",
-            ".bash_profile",
-            ".config/starship.toml",
-            ".config/nvim",
-            ".tmux.conf"
-        ],
         "workstation-arm": [
             ".bashrc",
+            ".bash_profile",
+            ".tmux.conf",
+            ".haskeline",
+            ".ruff.toml",
+            ".vimrc",
+            ".visidatarc",
+            ".ipython",
             ".config/starship.toml",
             ".config/nvim",
-            ".tmux.conf"
+            ".config/.ghc",
+            ".config/kitty",
+            ".config/mpv",
+            ".config/ranger"
         ],
         "workstation-minimal": [
             ".bashrc",
             ".bash_profile",
+            ".tmux.conf",
+            ".haskeline",
+            ".ruff.toml",
+            ".vimrc",
+            ".visidatarc",
+            ".ipython",
             ".config/starship.toml",
             ".config/nvim",
-            ".tmux.conf"
+            ".config/.ghc",
+            ".config/kitty",
+            ".config/mpv",
+            ".config/ranger"
         ],
         "python-minimal": [
             ".bashrc",

@@ -557,14 +557,15 @@ class DevEnvironmentConfig:
                 setup_template=['uv tool install --python 3.11 ipython'],
             ),
             'neovim': ToolWithArch(
-                depends_on=['curl', 'tar'],
+                depends_on=['curl', 'tar', 'dotfiles'],
                 version='0.11.0',
                 arch_map={'x86_64': 'x86_64', 'aarch64': 'arm64'},
                 setup_template=[
                     """curl -LO https://github.com/neovim/neovim/releases/download/v<%>version/nvim-linux-<%>arch.tar.gz && \\
                     sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-<%>arch.tar.gz && \\
                     sudo ln -sf /opt/nvim-linux-<%>arch/bin/nvim /usr/local/bin/nvim && \\
-                    rm nvim-linux-<%>arch.tar.gz"""
+                    rm nvim-linux-<%>arch.tar.gz""",
+                    """nvim --headless "+Lazy! sync" +qa""",
                 ],
             ),
             'starship': Tool(
@@ -760,7 +761,6 @@ class DockerfileBuilder:
                 buf.write(f'COPY --chown=$USERNAME:$USERNAME {copy_item["source"]} {copy_item["destination"]}\n')
 
         if tool.setup:
-            buf.write(f'# setup for {name}\n')
             for setup_cmd in tool.setup:
                 buf.write(f'RUN {normalize_indent_after_first_line(setup_cmd)}\n')
             buf.write('\n')
