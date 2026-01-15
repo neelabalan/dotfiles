@@ -172,6 +172,19 @@ vim.opt.mouse = "a"
 vim.opt.guicursor = "n-v-c-i:block"
 vim.opt.showmode = false
 
+-- search improvements
+vim.opt.ignorecase = true
+vim.opt.smartcase = true
+vim.opt.hlsearch = true
+vim.opt.incsearch = true
+
+-- persistent undo
+vim.opt.undofile = true
+vim.opt.undodir = vim.fn.stdpath("data") .. "/undo"
+
+-- better completion
+vim.opt.completeopt = { "menu", "menuone", "noselect" }
+
 -- python indentation configuration using official Neovim method
 vim.g.python_indent = {
   -- 4 spaces after open paren (instead of default 8)
