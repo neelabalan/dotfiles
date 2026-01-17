@@ -15,7 +15,16 @@ vim.opt.rtp:prepend(lazypath)
 -- plugin configuration
 require("lazy").setup({
   -- common utilities
-  "nvim-lua/plenary.nvim",           
+  "nvim-lua/plenary.nvim",
+  -- git signs
+  {
+    "lewis6991/gitsigns.nvim",
+    config = function()
+      require("gitsigns").setup({
+        current_line_blame = true,
+      })
+    end
+  },
   {
     -- auto pairs for brackets, quotes, etc.
     "windwp/nvim-autopairs",
