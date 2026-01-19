@@ -160,6 +160,26 @@ require("lazy").setup({
       vim.cmd("colorscheme vscode")
     end
   }
+}, {
+  -- configure lazy.nvim to respect the lockfile
+  defaults = {
+    -- plugins are loaded at startup
+    lazy = false,  
+  },
+  -- explicitly set lockfile path
+  lockfile = vim.fn.stdpath("config") .. "/lazy-lock.json", 
+  -- install missing plugins on startup
+  install = {
+    missing = true,
+  },
+  checker = {
+    -- disable automatic update checking
+    enabled = false,
+  },
+  -- disable automatic detection of config changes
+  change_detection = {
+    enabled = false,
+  },
 })
 
 -- basic settings
