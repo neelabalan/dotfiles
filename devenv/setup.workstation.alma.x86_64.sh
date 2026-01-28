@@ -18,6 +18,11 @@ log_error() { echo -e "${RED}[error]${NC} $1" >&2; }
 mkdir -p "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 
+# use temp directory for downloads
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+cd "$TMPDIR"
+
 TOOLS_TO_INSTALL=()
 INSTALL_ALL=false
 
@@ -25,28 +30,50 @@ declare -A TOOL_FUNCTIONS
 TOOL_FUNCTIONS[curl]='sudo dnf install -y curl --skip-broken'
 TOOL_FUNCTIONS[tar]='sudo dnf install -y tar --skip-broken'
 TOOL_FUNCTIONS[python]='curl -LsSf https://astral.sh/uv/0.7.9/install.sh | sh && uv python install 3.11 3.13'
-TOOL_FUNCTIONS[node]='curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \ export NVM_DIR=$HOME/.nvm && \ source $NVM_DIR/nvm.sh && nvm install 22'
+TOOL_FUNCTIONS[node]='curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \
+                    export NVM_DIR=$HOME/.nvm && \
+                    source $NVM_DIR/nvm.sh && nvm install 22'
 TOOL_FUNCTIONS[rust]='curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path'
-TOOL_FUNCTIONS[go]='curl -LO https://go.dev/dl/go1.23.9.linux-amd64.tar.gz && \ sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz && \ rm go1.23.9.linux-amd64.tar.gz && \ echo '"'"'export PATH=$PATH:/usr/local/go/bin'"'"' >> $HOME/.bashrc'
+TOOL_FUNCTIONS[go]='curl -LO https://go.dev/dl/go1.23.9.linux-amd64.tar.gz && \
+                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz && \
+                    rm go1.23.9.linux-amd64.tar.gz && \
+                    echo '"'"'export PATH=$PATH:/usr/local/go/bin'"'"' >> $HOME/.bashrc'
 TOOL_FUNCTIONS[unzip]='sudo dnf install -y unzip --skip-broken'
 TOOL_FUNCTIONS[zip]='sudo dnf install -y zip --skip-broken'
 TOOL_FUNCTIONS[sdkman]='curl -s "https://get.sdkman.io" | bash'
 TOOL_FUNCTIONS[git]='sudo dnf install -y git --skip-broken'
 TOOL_FUNCTIONS[dotsync]='curl -L https://github.com/neelabalan/tools/releases/download/dotsync-v0.0.2/dotsync-linux-x86_64.tar.gz | tar xz && mv dotsync $HOME/.local/bin/'
 TOOL_FUNCTIONS[dotfiles]='mkdir -p $(dirname dotsync.json) && cp dotsync.json dotsync.json && dotsync init --config $HOME/dotsync.json && dotsync setup --profile workstation'
-TOOL_FUNCTIONS[neovim]='curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-linux-x86_64.tar.gz && \ mkdir -p $HOME/.local/nvim && tar -C $HOME/.local/nvim -xzf nvim-linux-x86_64.tar.gz --strip-components=1 && \ ln -sf $HOME/.local/nvim/bin/nvim $HOME/.local/bin/nvim && \ rm nvim-linux-x86_64.tar.gz && nvim --headless "+Lazy! sync" +qa'
+TOOL_FUNCTIONS[neovim]='curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-linux-x86_64.tar.gz && \
+                    mkdir -p $HOME/.local/nvim && tar -C $HOME/.local/nvim -xzf nvim-linux-x86_64.tar.gz --strip-components=1 && \
+                    ln -sf $HOME/.local/nvim/bin/nvim $HOME/.local/bin/nvim && \
+                    rm nvim-linux-x86_64.tar.gz && nvim --headless "+Lazy! sync" +qa'
 TOOL_FUNCTIONS[starship]='curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config'
-TOOL_FUNCTIONS[fzf]='curl -LO https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_amd64.tar.gz && \ tar -xzf fzf-0.56.3-linux_amd64.tar.gz && \ mv fzf $HOME/.local/bin/ && rm fzf-0.56.3-linux_amd64.tar.gz'
-TOOL_FUNCTIONS[ripgrep]='curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz && \ tar -xzf ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz && \ mv ripgrep-14.1.1-x86_64-unknown-linux-musl/rg $HOME/.local/bin/ && \ rm -rf ripgrep-14.1.1-x86_64-unknown-linux-musl*'
-TOOL_FUNCTIONS[tokei]='curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-x86_64-unknown-linux-gnu.tar.gz && \ tar -xzf tokei-x86_64-unknown-linux-gnu.tar.gz && \ mv tokei $HOME/.local/bin/ && rm tokei-x86_64-unknown-linux-gnu.tar.gz'
-TOOL_FUNCTIONS[eza]='curl -L https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp && \ mv /tmp/eza $HOME/.local/bin/'
-TOOL_FUNCTIONS[kubectl]='curl -LO https://dl.k8s.io/release/v1.33.1/bin/linux/amd64/kubectl && \ chmod +x kubectl && mv kubectl $HOME/.local/bin/kubectl'
+TOOL_FUNCTIONS[fzf]='curl -LO https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_amd64.tar.gz && \
+                    tar -xzf fzf-0.56.3-linux_amd64.tar.gz && \
+                    mv fzf $HOME/.local/bin/ && rm fzf-0.56.3-linux_amd64.tar.gz'
+TOOL_FUNCTIONS[ripgrep]='curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz && \
+                    tar -xzf ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz && \
+                    mv ripgrep-14.1.1-x86_64-unknown-linux-musl/rg $HOME/.local/bin/ && \
+                    rm -rf ripgrep-14.1.1-x86_64-unknown-linux-musl*'
+TOOL_FUNCTIONS[tokei]='curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-x86_64-unknown-linux-gnu.tar.gz && \
+                    tar -xzf tokei-x86_64-unknown-linux-gnu.tar.gz && \
+                    mv tokei $HOME/.local/bin/ && rm tokei-x86_64-unknown-linux-gnu.tar.gz'
+TOOL_FUNCTIONS[eza]='curl -L https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp && \
+                    mv /tmp/eza $HOME/.local/bin/'
+TOOL_FUNCTIONS[kubectl]='curl -LO https://dl.k8s.io/release/v1.33.1/bin/linux/amd64/kubectl && \
+                    chmod +x kubectl && mv kubectl $HOME/.local/bin/kubectl'
 TOOL_FUNCTIONS[ipython]='uv tool install --python 3.11 ipython'
 TOOL_FUNCTIONS[ranger]='uv tool install ranger-fm'
 TOOL_FUNCTIONS[sysutils]='sudo dnf install -y procps iproute --skip-broken'
 TOOL_FUNCTIONS[openssh]='sudo dnf install -y openssh-server --skip-broken'
-TOOL_FUNCTIONS[ssh]='sudo sed -i '"'"'s/^#*PermitRootLogin.*/PermitRootLogin yes/'"'"' /etc/ssh/sshd_config && \ sudo sed -i '"'"'s/^#*PasswordAuthentication.*/PasswordAuthentication yes/'"'"' /etc/ssh/sshd_config && \ sudo sed -i '"'"'s/^#*UsePAM.*/UsePAM yes/'"'"' /etc/ssh/sshd_config && \ sudo ssh-keygen -A'
-TOOL_FUNCTIONS[docker]='sudo dnf -y install dnf-plugins-core && \ sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \ sudo dnf install -y docker-ce-cli'
+TOOL_FUNCTIONS[ssh]='sudo sed -i '"'"'s/^#*PermitRootLogin.*/PermitRootLogin yes/'"'"' /etc/ssh/sshd_config && \
+                    sudo sed -i '"'"'s/^#*PasswordAuthentication.*/PasswordAuthentication yes/'"'"' /etc/ssh/sshd_config && \
+                    sudo sed -i '"'"'s/^#*UsePAM.*/UsePAM yes/'"'"' /etc/ssh/sshd_config && \
+                    sudo ssh-keygen -A'
+TOOL_FUNCTIONS[docker]='sudo dnf -y install dnf-plugins-core && \
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \
+sudo dnf install -y docker-ce-cli'
 
 ALL_TOOLS=("curl" "tar" "python" "node" "rust" "go" "unzip" "zip" "sdkman" "git" "dotsync" "dotfiles" "neovim" "starship" "fzf" "ripgrep" "tokei" "eza" "kubectl" "ipython" "ranger" "sysutils" "openssh" "ssh" "docker")
 

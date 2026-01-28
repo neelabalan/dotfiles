@@ -676,31 +676,24 @@ class DevEnvironmentConfig:
                 ],
             ),
             'tokei': ToolWithArch(
-                depends_on=['curl', 'tar'],
+                depends_on=['rust'],
                 version='12.1.2',
                 arch_map={
-                    'x86_64': 'x86_64-unknown-linux-gnu',
-                    'aarch64': 'aarch64-unknown-linux-gnu',
-                    'darwin-aarch64': 'aarch64-apple-darwin',
+                    'x86_64': 'x86_64',
+                    'aarch64': 'aarch64',
+                    'darwin-aarch64': 'aarch64',
                 },
-                setup_template=[
-                    """curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v<%>version/tokei-<%>arch.tar.gz && \\
-                    tar -xzf tokei-<%>arch.tar.gz && \\
-                    mv tokei $HOME/.local/bin/ && rm tokei-<%>arch.tar.gz"""
-                ],
+                setup_template=['cargo install tokei --version <%>version --locked'],
             ),
             'eza': ToolWithArch(
-                depends_on=['curl', 'tar'],
-                version='v0.21.1',
+                depends_on=['rust'],
+                version='0.21.1',
                 arch_map={
-                    'x86_64': 'x86_64-unknown-linux-gnu',
-                    'aarch64': 'aarch64-unknown-linux-gnu',
-                    'darwin-aarch64': 'aarch64-apple-darwin',
+                    'x86_64': 'x86_64',
+                    'aarch64': 'aarch64',
+                    'darwin-aarch64': 'aarch64',
                 },
-                setup_template=[
-                    """curl -L https://github.com/eza-community/eza/releases/download/<%>version/eza_<%>arch.tar.gz | tar -xz -C /tmp && \\
-                    mv /tmp/eza $HOME/.local/bin/"""
-                ],
+                setup_template=['cargo install eza --version <%>version --locked'],
             ),
             'bat': ToolWithArch(
                 depends_on=['curl', 'tar'],
@@ -1050,7 +1043,7 @@ class DockerfileBuilder:
 
 class SetupShBuilder:
     def _get_header(self, profile: str, distro: str, arch: str) -> str:
-        return textwrap.dedent(f'''
+        return textwrap.dedent(f"""
             #!/bin/bash
             set -euo pipefail
 
@@ -1070,11 +1063,16 @@ class SetupShBuilder:
             mkdir -p "$HOME/.local/bin"
             export PATH="$HOME/.local/bin:$PATH"
 
+            # use temp directory for downloads
+            TMPDIR=$(mktemp -d)
+            trap "rm -rf $TMPDIR" EXIT
+            cd "$TMPDIR"
+
             TOOLS_TO_INSTALL=()
             INSTALL_ALL=false
-        ''')
+        """)
 
-    SETUP_SH_MAIN = textwrap.dedent('''
+    SETUP_SH_MAIN = textwrap.dedent("""
         print_usage() {
             echo "usage: $0 [options] [tool1 tool2 ...]"
             echo ""
@@ -1139,7 +1137,7 @@ class SetupShBuilder:
         done
 
         log_info "setup complete!"
-    ''')
+    """)
 
     def __init__(self, config: DevEnvironmentConfig) -> None:
         self.config = config
@@ -1157,9 +1155,7 @@ class SetupShBuilder:
                 commands.append(f'cp {shlex.quote(f["source"])} {shlex.quote(f["destination"])}')
         if tool.setup:
             for cmd in tool.setup:
-                # normalize multiline commands
-                normalized = ' '.join(line.strip() for line in cmd.splitlines())
-                commands.append(normalized)
+                commands.append(cmd)
 
         if not commands:
             commands = ['true']
