@@ -114,14 +114,11 @@ RUN curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripg
 
 
 # stage: tokei
-RUN curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-x86_64-unknown-linux-gnu.tar.gz && \
-    tar -xzf tokei-x86_64-unknown-linux-gnu.tar.gz && \
-    mv tokei $HOME/.local/bin/ && rm tokei-x86_64-unknown-linux-gnu.tar.gz
+RUN cargo install tokei --version 12.1.2 --locked
 
 
 # stage: eza
-RUN curl -L https://github.com/eza-community/eza/releases/download/v0.21.1/eza_x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp && \
-    mv /tmp/eza $HOME/.local/bin/
+RUN cargo install eza --version 0.21.1 --locked
 
 
 # stage: kubectl
