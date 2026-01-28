@@ -4,7 +4,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     export PATH=/opt/homebrew/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Applications/kitty.app/Contents/MacOS
     export PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
 
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+    # eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 export PATH="$PATH:$HOME/.dotfiles/scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin"
