@@ -1,0 +1,41 @@
+#!/bin/bash
+
+BASH_VERSION="5.1"
+INSTALL_PATH="/usr/local/bin/bash"
+TEMP_DIR="$HOME/bash_build_temp"
+
+echo "checking for Xcode Command Line Tools..."
+if ! xcode-select -p &>/dev/null; then
+    echo "error: Xcode Command Line Tools not found. Please run 'xcode-select --install' first."
+    exit 1
+fi
+
+echo "--- starting Installation of Bash $BASH_VERSION ---"
+
+mkdir -p "$TEMP_DIR"
+cd "$TEMP_DIR" || exit
+
+echo "downloading source..."
+curl -O "https://ftp.gnu.org/gnu/bash/bash-$BASH_VERSION.tar.gz"
+
+tar xzf "bash-$BASH_VERSION.tar.gz"
+cd "bash-$BASH_VERSION" || exit
+
+echo "configuring and compiling... (this may take a minute)"
+./configure
+make
+
+echo "installing to /usr/local/bin (requires password)..."
+sudo make install
+
+if ! grep -Fxq "$INSTALL_PATH" /etc/shells; then
+    echo "adding $INSTALL_PATH to /etc/shells..."
+    echo "$INSTALL_PATH" | sudo tee -a /etc/shells > /dev/null
+fi
+
+cd "$HOME" || exit
+rm -rf "$TEMP_DIR"
+
+echo "--- success ---"
+echo "bash $BASH_VERSION is installed at $INSTALL_PATH."
+echo "to set it as your default shell, run: chsh -s $INSTALL_PATH"
