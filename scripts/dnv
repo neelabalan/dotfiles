@@ -227,6 +227,35 @@ class CudaDistroConfig(RpmDistroConfig):
     pkg_update: str = 'dnf update -y'
 
 
+@dataclasses.dataclass
+class DarwinDistroConfig(DistroConfig):
+    name: str = 'darwin'
+    pkg_format: str = 'none'
+    base_image: str = ''
+    pkg_install: str = 'true'  # no-op, tools installed via direct download
+    pkg_install_flags: str = ''
+    pkg_update: str = 'true'
+
+    def install(self, *packages: str) -> str:
+        # macos has curl, tar, git via xcode command line tools
+        return 'true'
+
+    def install_nosudo(self, *packages: str) -> str:
+        return 'true'
+
+    def docker_install_cmd(self) -> str:
+        return 'echo "install docker desktop from https://www.docker.com/products/docker-desktop"'
+
+    def gcc_package(self) -> str:
+        return 'xcode-select --install || true'
+
+    def sysutils_packages(self) -> list[str]:
+        return []
+
+    def mirror_config(self) -> str:
+        return 'true'
+
+
 def resolve_dependencies(tools: dict[str, Tool], selected: list[str]) -> list[str]:
     resolved: list[str] = []
     visited: set[str] = set()
@@ -320,6 +349,7 @@ class DevEnvironmentConfig:
         'alma-minimal': AlmaMinimalDistroConfig(),
         'fedora': FedoraDistroConfig(),
         'cuda': CudaDistroConfig(),
+        'darwin': DarwinDistroConfig(),
     }
 
     WORKSTATION_TOOLS = [
@@ -428,6 +458,41 @@ class DevEnvironmentConfig:
             'volumes': [SSH_VOLUME],
             'tools': ARM_BUILD_TOOLS + WORKSTATION_TOOLS,
         },
+        'macos': {
+            'distro': 'darwin',
+            'arch': 'aarch64',
+            'container_user': '',
+            'volumes': [],
+            'tools': [
+                'python',
+                'node',
+                'rust',
+                'go',
+                'sdkman',
+                'neovim',
+                'starship',
+                'fzf',
+                'ripgrep',
+                'tokei',
+                'eza',
+                'bat',
+                'fd',
+                'btop',
+                'age',
+                'jq',
+                'yq',
+                'helm',
+                'hurl',
+                'zoxide',
+                'yazi',
+                'typst',
+                'tree-sitter',
+                'kubectl',
+                'ipython',
+                'ranger',
+                'dotfiles',
+            ],
+        },
     }
 
     @classmethod
@@ -472,7 +537,8 @@ class DevEnvironmentConfig:
 
     def _generate_conf(self) -> dict[str, Tool]:
         pkg = self.current_distro_config
-        ToolWithArch = functools.partial(Tool, current_arch=self.host_arch)
+        effective_arch = f'darwin-{self.host_arch}' if self.distro == 'darwin' else self.host_arch
+        ToolWithArch = functools.partial(Tool, current_arch=effective_arch)
 
         all_tools: dict[str, Tool] = {
             'curl': Tool(
@@ -534,11 +600,15 @@ class DevEnvironmentConfig:
             'go': ToolWithArch(
                 depends_on=['curl', 'tar'],
                 version='go1.23.9',
-                arch_map={'x86_64': 'amd64', 'aarch64': 'arm64'},
+                arch_map={
+                    'x86_64': 'linux-amd64',
+                    'aarch64': 'linux-arm64',
+                    'darwin-aarch64': 'darwin-arm64',
+                },
                 setup_template=[
-                    """curl -LO https://go.dev/dl/<%>version.linux-<%>arch.tar.gz && \\
-                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf <%>version.linux-<%>arch.tar.gz && \\
-                    rm <%>version.linux-<%>arch.tar.gz && \\
+                    """curl -LO https://go.dev/dl/<%>version.<%>arch.tar.gz && \\
+                    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf <%>version.<%>arch.tar.gz && \\
+                    rm <%>version.<%>arch.tar.gz && \\
                     echo 'export PATH=$PATH:/usr/local/go/bin' >> $HOME/.bashrc""",
                 ],
                 env=[{'PATH': '$PATH:/usr/local/go/bin'}],
@@ -559,12 +629,16 @@ class DevEnvironmentConfig:
             'neovim': ToolWithArch(
                 depends_on=['curl', 'tar', 'dotfiles'],
                 version='0.11.0',
-                arch_map={'x86_64': 'x86_64', 'aarch64': 'arm64'},
+                arch_map={
+                    'x86_64': 'linux-x86_64',
+                    'aarch64': 'linux-arm64',
+                    'darwin-aarch64': 'macos-arm64',
+                },
                 setup_template=[
-                    """curl -LO https://github.com/neovim/neovim/releases/download/v<%>version/nvim-linux-<%>arch.tar.gz && \\
-                    sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-<%>arch.tar.gz && \\
-                    sudo ln -sf /opt/nvim-linux-<%>arch/bin/nvim /usr/local/bin/nvim && \\
-                    rm nvim-linux-<%>arch.tar.gz""",
+                    """curl -LO https://github.com/neovim/neovim/releases/download/v<%>version/nvim-<%>arch.tar.gz && \\
+                    mkdir -p $HOME/.local/nvim && tar -C $HOME/.local/nvim -xzf nvim-<%>arch.tar.gz --strip-components=1 && \\
+                    ln -sf $HOME/.local/nvim/bin/nvim $HOME/.local/bin/nvim && \\
+                    rm nvim-<%>arch.tar.gz""",
                     """nvim --headless "+Lazy! sync" +qa""",
                 ],
             ),
@@ -575,50 +649,246 @@ class DevEnvironmentConfig:
             'fzf': ToolWithArch(
                 depends_on=['curl', 'tar'],
                 version='0.56.3',
-                arch_map={'x86_64': 'amd64', 'aarch64': 'arm64'},
+                arch_map={
+                    'x86_64': 'linux_amd64',
+                    'aarch64': 'linux_arm64',
+                    'darwin-aarch64': 'darwin_arm64',
+                },
                 setup_template=[
-                    """curl -LO https://github.com/junegunn/fzf/releases/download/v<%>version/fzf-<%>version-linux_<%>arch.tar.gz && \\
-                    tar -xzf fzf-<%>version-linux_<%>arch.tar.gz && \\
-                    sudo mv fzf /usr/local/bin/ && rm fzf-<%>version-linux_<%>arch.tar.gz"""
+                    """curl -LO https://github.com/junegunn/fzf/releases/download/v<%>version/fzf-<%>version-<%>arch.tar.gz && \\
+                    tar -xzf fzf-<%>version-<%>arch.tar.gz && \\
+                    mv fzf $HOME/.local/bin/ && rm fzf-<%>version-<%>arch.tar.gz"""
                 ],
             ),
             'ripgrep': ToolWithArch(
                 depends_on=['curl', 'tar'],
                 version='14.1.1',
-                arch_map={'x86_64': 'x86_64-unknown-linux-musl', 'aarch64': 'aarch64-unknown-linux-gnu'},
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-musl',
+                    'aarch64': 'aarch64-unknown-linux-gnu',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
                 setup_template=[
                     """curl -LO https://github.com/BurntSushi/ripgrep/releases/download/<%>version/ripgrep-<%>version-<%>arch.tar.gz && \\
                     tar -xzf ripgrep-<%>version-<%>arch.tar.gz && \\
-                    sudo mv ripgrep-<%>version-<%>arch/rg /usr/local/bin/ && \\
+                    mv ripgrep-<%>version-<%>arch/rg $HOME/.local/bin/ && \\
                     rm -rf ripgrep-<%>version-<%>arch*"""
                 ],
             ),
             'tokei': ToolWithArch(
                 depends_on=['curl', 'tar'],
                 version='12.1.2',
-                arch_map={'x86_64': 'x86_64-unknown-linux-gnu', 'aarch64': 'aarch64-unknown-linux-gnu'},
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-gnu',
+                    'aarch64': 'aarch64-unknown-linux-gnu',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
                 setup_template=[
                     """curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v<%>version/tokei-<%>arch.tar.gz && \\
                     tar -xzf tokei-<%>arch.tar.gz && \\
-                    sudo mv tokei /usr/local/bin/ && rm tokei-<%>arch.tar.gz"""
+                    mv tokei $HOME/.local/bin/ && rm tokei-<%>arch.tar.gz"""
                 ],
             ),
             'eza': ToolWithArch(
                 depends_on=['curl', 'tar'],
                 version='v0.21.1',
-                arch_map={'x86_64': 'x86_64-unknown-linux-gnu', 'aarch64': 'aarch64-unknown-linux-gnu'},
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-gnu',
+                    'aarch64': 'aarch64-unknown-linux-gnu',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
                 setup_template=[
                     """curl -L https://github.com/eza-community/eza/releases/download/<%>version/eza_<%>arch.tar.gz | tar -xz -C /tmp && \\
-                    sudo mv /tmp/eza /usr/local/bin/"""
+                    mv /tmp/eza $HOME/.local/bin/"""
+                ],
+            ),
+            'bat': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='0.24.0',
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-musl',
+                    'aarch64': 'aarch64-unknown-linux-gnu',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/sharkdp/bat/releases/download/v<%>version/bat-v<%>version-<%>arch.tar.gz && \\
+                    tar -xzf bat-v<%>version-<%>arch.tar.gz && \\
+                    mv bat-v<%>version-<%>arch/bat $HOME/.local/bin/ && \\
+                    rm -rf bat-v<%>version-<%>arch*"""
+                ],
+            ),
+            'fd': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='10.2.0',
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-musl',
+                    'aarch64': 'aarch64-unknown-linux-gnu',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/sharkdp/fd/releases/download/v<%>version/fd-v<%>version-<%>arch.tar.gz && \\
+                    tar -xzf fd-v<%>version-<%>arch.tar.gz && \\
+                    mv fd-v<%>version-<%>arch/fd $HOME/.local/bin/ && \\
+                    rm -rf fd-v<%>version-<%>arch*"""
+                ],
+            ),
+            'btop': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='1.4.0',
+                arch_map={
+                    'x86_64': 'x86_64-linux-musl',
+                    'aarch64': 'aarch64-linux-musl',
+                    'darwin-aarch64': 'aarch64-macos',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/aristocratos/btop/releases/download/v<%>version/btop-<%>arch.tbz && \\
+                    tar -xjf btop-<%>arch.tbz && \\
+                    mv btop/bin/btop $HOME/.local/bin/ && \\
+                    rm -rf btop btop-<%>arch.tbz"""
+                ],
+            ),
+            'age': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='1.2.0',
+                arch_map={
+                    'x86_64': 'linux-amd64',
+                    'aarch64': 'linux-arm64',
+                    'darwin-aarch64': 'darwin-arm64',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/FiloSottile/age/releases/download/v<%>version/age-v<%>version-<%>arch.tar.gz && \\
+                    tar -xzf age-v<%>version-<%>arch.tar.gz && \\
+                    mv age/age age/age-keygen $HOME/.local/bin/ && \\
+                    rm -rf age age-v<%>version-<%>arch.tar.gz"""
+                ],
+            ),
+            'jq': ToolWithArch(
+                depends_on=['curl'],
+                version='1.7.1',
+                arch_map={
+                    'x86_64': 'linux-amd64',
+                    'aarch64': 'linux-arm64',
+                    'darwin-aarch64': 'macos-arm64',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/jqlang/jq/releases/download/jq-<%>version/jq-<%>arch && \\
+                    chmod +x jq-<%>arch && mv jq-<%>arch $HOME/.local/bin/jq"""
+                ],
+            ),
+            'yq': ToolWithArch(
+                depends_on=['curl'],
+                version='4.44.3',
+                arch_map={
+                    'x86_64': 'linux_amd64',
+                    'aarch64': 'linux_arm64',
+                    'darwin-aarch64': 'darwin_arm64',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/mikefarah/yq/releases/download/v<%>version/yq_<%>arch && \\
+                    chmod +x yq_<%>arch && mv yq_<%>arch $HOME/.local/bin/yq"""
+                ],
+            ),
+            'helm': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='3.16.3',
+                arch_map={
+                    'x86_64': 'linux-amd64',
+                    'aarch64': 'linux-arm64',
+                    'darwin-aarch64': 'darwin-arm64',
+                },
+                setup_template=[
+                    """curl -LO https://get.helm.sh/helm-v<%>version-<%>arch.tar.gz && \\
+                    tar -xzf helm-v<%>version-<%>arch.tar.gz && \\
+                    mv <%>arch/helm $HOME/.local/bin/ && \\
+                    rm -rf <%>arch helm-v<%>version-<%>arch.tar.gz"""
+                ],
+            ),
+            'hurl': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='5.0.1',
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-gnu',
+                    'aarch64': 'aarch64-unknown-linux-gnu',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/<%>version/hurl-<%>version-<%>arch.tar.gz && \\
+                    tar -xzf hurl-<%>version-<%>arch.tar.gz && \\
+                    mv hurl-<%>version-<%>arch/bin/hurl $HOME/.local/bin/ && \\
+                    rm -rf hurl-<%>version-<%>arch*"""
+                ],
+            ),
+            'zoxide': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='0.9.6',
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-musl',
+                    'aarch64': 'aarch64-unknown-linux-musl',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/ajeetdsouza/zoxide/releases/download/v<%>version/zoxide-<%>version-<%>arch.tar.gz && \\
+                    tar -xzf zoxide-<%>version-<%>arch.tar.gz && \\
+                    mv zoxide $HOME/.local/bin/ && \\
+                    rm zoxide-<%>version-<%>arch.tar.gz"""
+                ],
+            ),
+            'yazi': ToolWithArch(
+                depends_on=['curl', 'tar', 'unzip'],
+                version='0.4.2',
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-musl',
+                    'aarch64': 'aarch64-unknown-linux-musl',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/sxyazi/yazi/releases/download/v<%>version/yazi-<%>arch.zip && \\
+                    unzip -o yazi-<%>arch.zip && \\
+                    mv yazi-<%>arch/yazi $HOME/.local/bin/ && \\
+                    rm -rf yazi-<%>arch*"""
+                ],
+            ),
+            'typst': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='0.12.0',
+                arch_map={
+                    'x86_64': 'x86_64-unknown-linux-musl',
+                    'aarch64': 'aarch64-unknown-linux-musl',
+                    'darwin-aarch64': 'aarch64-apple-darwin',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/typst/typst/releases/download/v<%>version/typst-<%>arch.tar.xz && \\
+                    tar -xJf typst-<%>arch.tar.xz && \\
+                    mv typst-<%>arch/typst $HOME/.local/bin/ && \\
+                    rm -rf typst-<%>arch*"""
+                ],
+            ),
+            'tree-sitter': ToolWithArch(
+                depends_on=['curl', 'tar'],
+                version='0.24.5',
+                arch_map={
+                    'x86_64': 'linux-x64',
+                    'aarch64': 'linux-arm64',
+                    'darwin-aarch64': 'macos-arm64',
+                },
+                setup_template=[
+                    """curl -LO https://github.com/tree-sitter/tree-sitter/releases/download/v<%>version/tree-sitter-<%>arch.gz && \\
+                    gunzip tree-sitter-<%>arch.gz && \\
+                    chmod +x tree-sitter-<%>arch && \\
+                    mv tree-sitter-<%>arch $HOME/.local/bin/tree-sitter"""
                 ],
             ),
             'kubectl': ToolWithArch(
                 depends_on=['curl'],
                 version='v1.33.1',
-                arch_map={'x86_64': 'amd64', 'aarch64': 'arm64'},
+                arch_map={
+                    'x86_64': 'linux/amd64',
+                    'aarch64': 'linux/arm64',
+                    'darwin-aarch64': 'darwin/arm64',
+                },
                 setup_template=[
-                    """curl -LO https://dl.k8s.io/release/<%>version/bin/linux/<%>arch/kubectl && \\
-                    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl"""
+                    """curl -LO https://dl.k8s.io/release/<%>version/bin/<%>arch/kubectl && \\
+                    chmod +x kubectl && mv kubectl $HOME/.local/bin/kubectl"""
                 ],
             ),
             'ssh': Tool(
@@ -637,10 +907,14 @@ class DevEnvironmentConfig:
             'dotsync': ToolWithArch(
                 depends_on=['curl', 'git'],
                 version='0.0.2',
-                arch_map={'x86_64': 'linux-x86_64', 'aarch64': 'linux-aarch64'},
+                arch_map={
+                    'x86_64': 'linux-x86_64',
+                    'aarch64': 'linux-aarch64',
+                    'darwin-aarch64': 'darwin-aarch64',
+                },
                 setup_template=[
                     'curl -L https://github.com/neelabalan/tools/releases/download/dotsync-v<%>version/dotsync-<%>arch.tar.gz | tar xz',
-                    'sudo mv dotsync /usr/local/bin/',
+                    'mv dotsync $HOME/.local/bin/',
                 ],
             ),
             'dotfiles': Tool(
@@ -775,65 +1049,149 @@ class DockerfileBuilder:
 
 
 class SetupShBuilder:
-    SETUP_SH_BASE_TEMPLATE = textwrap.dedent("""
-        #!/bin/bash
+    def _get_header(self, profile: str, distro: str, arch: str) -> str:
+        return textwrap.dedent(f'''
+            #!/bin/bash
+            set -euo pipefail
 
-        $tool_functions
+            # generated setup script for profile: {profile}
+            # distro: {distro}, arch: {arch}
 
-        $main_cli
-    """)
+            RED='\\033[0;31m'
+            GREEN='\\033[0;32m'
+            YELLOW='\\033[0;33m'
+            NC='\\033[0m'
 
-    MAIN_CLI = textwrap.dedent("""
-        function install_deps() {
-            echo "Installing base dependencies..."
-            # This function can be customized to install any base dependencies
-            # that are needed before running the individual tool functions
+            log_info() {{ echo -e "${{GREEN}}[info]${{NC}} $1"; }}
+            log_warn() {{ echo -e "${{YELLOW}}[warn]${{NC}} $1"; }}
+            log_error() {{ echo -e "${{RED}}[error]${{NC}} $1" >&2; }}
+
+            # ensure local bin directory exists
+            mkdir -p "$HOME/.local/bin"
+            export PATH="$HOME/.local/bin:$PATH"
+
+            TOOLS_TO_INSTALL=()
+            INSTALL_ALL=false
+        ''')
+
+    SETUP_SH_MAIN = textwrap.dedent('''
+        print_usage() {
+            echo "usage: $0 [options] [tool1 tool2 ...]"
+            echo ""
+            echo "options:"
+            echo "  --all        install all tools"
+            echo "  --list       list available tools"
+            echo "  --help       show this help"
+            echo ""
+            echo "available tools:"
+            for tool in "${!TOOL_FUNCTIONS[@]}"; do
+                echo "  $tool"
+            done | sort
         }
 
-        if [ \"$1\" == \"--install\" ]; then
-            shift
-            install_deps
-            for tool in \"$@\"; do
-                if declare -f \"$tool\" > /dev/null; then
-                    \"$tool\"
-                else
-                    echo "Error: Unknown tool '$tool'"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --all)
+                    INSTALL_ALL=true
+                    shift
+                    ;;
+                --list)
+                    echo "available tools:"
+                    for tool in "${!TOOL_FUNCTIONS[@]}"; do
+                        echo "  $tool"
+                    done | sort
+                    exit 0
+                    ;;
+                --help|-h)
+                    print_usage
+                    exit 0
+                    ;;
+                -*)
+                    log_error "unknown option: $1"
+                    print_usage
                     exit 1
-                fi
-            done
-        else
-            echo "Usage: $0 --install tool1 tool2 ..."
+                    ;;
+                *)
+                    TOOLS_TO_INSTALL+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+
+        if [[ "$INSTALL_ALL" == true ]]; then
+            TOOLS_TO_INSTALL=("${ALL_TOOLS[@]}")
+        fi
+
+        if [[ ${#TOOLS_TO_INSTALL[@]} -eq 0 ]]; then
+            print_usage
             exit 1
         fi
-    """)
+
+        for tool in "${TOOLS_TO_INSTALL[@]}"; do
+            if [[ -n "${TOOL_FUNCTIONS[$tool]:-}" ]]; then
+                log_info "installing $tool..."
+                eval "${TOOL_FUNCTIONS[$tool]}"
+                log_info "$tool installed"
+            else
+                log_error "unknown tool: $tool"
+                exit 1
+            fi
+        done
+
+        log_info "setup complete!"
+    ''')
 
     def __init__(self, config: DevEnvironmentConfig) -> None:
         self.config = config
         self.tools = config.conf
 
-    def build_tool_function(self, name: str, tool: Tool) -> str:
-        buf = io.StringIO()
-        buf.write(f'function {name} {{\n')
+    def _escape_for_bash(self, cmd: str) -> str:
+        # escape single quotes for embedding in bash single-quoted string
+        return cmd.replace("'", "'\"'\"'")
 
+    def build_tool_entry(self, name: str, tool: Tool) -> str:
+        commands = []
         if tool.copy:
-            buf.write(f'    # file copy for {name}\n')
             for f in tool.copy:
-                buf.write(f'    mkdir -p $(dirname {shlex.quote(f["destination"])})\n')
-                buf.write(f'    cp {shlex.quote(f["source"])} {shlex.quote(f["destination"])}\n')
-
+                commands.append(f'mkdir -p $(dirname {shlex.quote(f["destination"])})')
+                commands.append(f'cp {shlex.quote(f["source"])} {shlex.quote(f["destination"])}')
         if tool.setup:
-            buf.write(f'    # setup for {name}\n')
             for cmd in tool.setup:
-                buf.write(f'    {normalize_indent_after_first_line(cmd, indent=8)}\n')
+                # normalize multiline commands
+                normalized = ' '.join(line.strip() for line in cmd.splitlines())
+                commands.append(normalized)
 
-        buf.write('}\n')
-        return buf.getvalue()
+        if not commands:
+            commands = ['true']
+
+        combined = ' && '.join(commands)
+        escaped = self._escape_for_bash(combined)
+        return f"[{name}]='{escaped}'"
 
     def build(self) -> str:
-        functions = [self.build_tool_function(name, tool) for name, tool in self.tools.items()]
-        return string.Template(self.SETUP_SH_BASE_TEMPLATE).substitute(
-            tool_functions='\n'.join(functions), main_cli=self.MAIN_CLI
+        buf = io.StringIO()
+
+        # header
+        header = self._get_header(
+            profile=self.config.profile or 'unknown',
+            distro=self.config.distro,
+            arch=self.config.host_arch,
         )
+        buf.write(header)
+
+        # tool functions as associative array
+        buf.write('\ndeclare -A TOOL_FUNCTIONS\n')
+        for name, tool in self.tools.items():
+            buf.write(f'TOOL_FUNCTIONS{self.build_tool_entry(name, tool)}\n')
+
+        # all tools array (preserves order)
+        tool_names = ' '.join(f'"{name}"' for name in self.tools.keys())
+        buf.write(f'\nALL_TOOLS=({tool_names})\n')
+
+        # main script
+        buf.write(self.SETUP_SH_MAIN)
+
+        return buf.getvalue()
 
 
 class ArtifactRepository:
@@ -1215,10 +1573,24 @@ class CommandHandler:
 
         config = DevEnvironmentConfig.from_profile(self.args.profile)
 
-        dockerfile_content = DockerfileBuilder(config).build()
-        filename = f'Dockerfile.{config.profile}.{config.distro}.{config.host_arch}'
-        saved_path = self.artifact_repo.save_artifact(dockerfile_content, filename)
-        logger.info(f'Dockerfile written to: {saved_path}')
+        # determine output format
+        output_format = self.args.format
+        if output_format is None:
+            output_format = 'shell' if config.distro == 'darwin' else 'dockerfile'
+
+        if output_format == 'shell':
+            script_content = SetupShBuilder(config).build()
+            filename = f'setup.{config.profile}.{config.distro}.{config.host_arch}.sh'
+            saved_path = self.artifact_repo.save_artifact(script_content, filename)
+            logger.info(f'setup script written to: {saved_path}')
+        else:
+            if config.distro == 'darwin':
+                logger.error('dockerfile format not supported for darwin profile')
+                sys.exit(1)
+            dockerfile_content = DockerfileBuilder(config).build()
+            filename = f'Dockerfile.{config.profile}.{config.distro}.{config.host_arch}'
+            saved_path = self.artifact_repo.save_artifact(dockerfile_content, filename)
+            logger.info(f'Dockerfile written to: {saved_path}')
 
     def handle_ls(self) -> None:
         DevContainerManager.list_deployments()
@@ -1294,6 +1666,7 @@ Profiles:
   python-minimal     Lightweight Python environment with essential tools
   python-minimal-arm Same as python-minimal but for ARM64 architecture
   ml-cuda            CUDA-enabled environment for machine learning
+  macos              macOS native setup (generates shell script, not Dockerfile)
   just-dotfiles      Only dotfiles sync, no container tools
 
 Examples:
@@ -1333,11 +1706,17 @@ Environment:
     )
 
     # craft command args
-    craft_parser = subparsers.add_parser('craft', help='generate Dockerfile')
+    craft_parser = subparsers.add_parser('craft', help='generate Dockerfile or shell script')
     craft_parser.add_argument(
         '--profile',
         default='workstation',
         help='profile name to use (default: workstation)',
+    )
+    craft_parser.add_argument(
+        '--format',
+        choices=['dockerfile', 'shell'],
+        default=None,
+        help='output format: dockerfile or shell (default: shell for darwin, dockerfile for others)',
     )
 
     # ls command args

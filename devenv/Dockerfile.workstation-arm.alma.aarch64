@@ -23,32 +23,26 @@ WORKDIR /home/$USERNAME
 ENV HOME=/home/$USERNAME
 
 # stage: git
-# setup for git
 RUN sudo dnf install -y git --skip-broken
 
 
 # stage: make
-# setup for make
 RUN sudo dnf install -y make --skip-broken
 
 
 # stage: gcc
-# setup for gcc
 RUN sudo dnf install -y gcc --skip-broken
 
 
 # stage: vim
-# setup for vim
 RUN sudo dnf install -y vim --skip-broken
 
 
 # stage: curl
-# setup for curl
 RUN sudo dnf install -y curl --skip-broken
 
 
 # stage: tar
-# setup for tar
 RUN sudo dnf install -y tar --skip-broken
 
 
@@ -56,12 +50,10 @@ RUN sudo dnf install -y tar --skip-broken
 # setting Env for python
 ENV PATH=$HOME/.local/bin:$PATH
 
-# setup for python
 RUN curl -LsSf https://astral.sh/uv/0.7.9/install.sh | sh && uv python install 3.11 3.13
 
 
 # stage: node
-# setup for node
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && \
     export NVM_DIR=$HOME/.nvm && \
     source $NVM_DIR/nvm.sh && nvm install 22
@@ -71,7 +63,6 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | b
 # setting Env for rust
 ENV PATH=$PATH:$HOME/.cargo/bin
 
-# setup for rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
 
 
@@ -79,7 +70,6 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path
 # setting Env for go
 ENV PATH=$PATH:/usr/local/go/bin
 
-# setup for go
 RUN curl -LO https://go.dev/dl/go1.23.9.linux-arm64.tar.gz && \
     sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-arm64.tar.gz && \
     rm go1.23.9.linux-arm64.tar.gz && \
@@ -87,89 +77,87 @@ RUN curl -LO https://go.dev/dl/go1.23.9.linux-arm64.tar.gz && \
 
 
 # stage: unzip
-# setup for unzip
 RUN sudo dnf install -y unzip --skip-broken
 
 
 # stage: zip
-# setup for zip
 RUN sudo dnf install -y zip --skip-broken
 
 
 # stage: sdkman
-# setup for sdkman
 RUN curl -s "https://get.sdkman.io" | bash
 
 
+# stage: dotsync
+RUN curl -L https://github.com/neelabalan/tools/releases/download/dotsync-v0.0.2/dotsync-linux-aarch64.tar.gz | tar xz
+RUN mv dotsync $HOME/.local/bin/
+
+
+# stage: dotfiles
+# file copy for dotfiles
+COPY --chown=$USERNAME:$USERNAME dotsync.json dotsync.json
+RUN dotsync init --config $HOME/dotsync.json
+RUN dotsync setup --profile workstation-arm
+
+
 # stage: neovim
-# setup for neovim
 RUN curl -LO https://github.com/neovim/neovim/releases/download/v0.11.0/nvim-linux-arm64.tar.gz && \
-    sudo rm -rf /opt/nvim && sudo tar -C /opt -xzf nvim-linux-arm64.tar.gz && \
-    sudo ln -sf /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim && \
+    mkdir -p $HOME/.local/nvim && tar -C $HOME/.local/nvim -xzf nvim-linux-arm64.tar.gz --strip-components=1 && \
+    ln -sf $HOME/.local/nvim/bin/nvim $HOME/.local/bin/nvim && \
     rm nvim-linux-arm64.tar.gz
+RUN nvim --headless "+Lazy! sync" +qa
 
 
 # stage: starship
-# setup for starship
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y && mkdir -p $HOME/.config
 
 
 # stage: fzf
-# setup for fzf
 RUN curl -LO https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_arm64.tar.gz && \
     tar -xzf fzf-0.56.3-linux_arm64.tar.gz && \
-    sudo mv fzf /usr/local/bin/ && rm fzf-0.56.3-linux_arm64.tar.gz
+    mv fzf $HOME/.local/bin/ && rm fzf-0.56.3-linux_arm64.tar.gz
 
 
 # stage: ripgrep
-# setup for ripgrep
 RUN curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz && \
     tar -xzf ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz && \
-    sudo mv ripgrep-14.1.1-aarch64-unknown-linux-gnu/rg /usr/local/bin/ && \
+    mv ripgrep-14.1.1-aarch64-unknown-linux-gnu/rg $HOME/.local/bin/ && \
     rm -rf ripgrep-14.1.1-aarch64-unknown-linux-gnu*
 
 
 # stage: tokei
-# setup for tokei
 RUN curl -LO https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-aarch64-unknown-linux-gnu.tar.gz && \
     tar -xzf tokei-aarch64-unknown-linux-gnu.tar.gz && \
-    sudo mv tokei /usr/local/bin/ && rm tokei-aarch64-unknown-linux-gnu.tar.gz
+    mv tokei $HOME/.local/bin/ && rm tokei-aarch64-unknown-linux-gnu.tar.gz
 
 
 # stage: eza
-# setup for eza
 RUN curl -L https://github.com/eza-community/eza/releases/download/v0.21.1/eza_aarch64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp && \
-    sudo mv /tmp/eza /usr/local/bin/
+    mv /tmp/eza $HOME/.local/bin/
 
 
 # stage: kubectl
-# setup for kubectl
 RUN curl -LO https://dl.k8s.io/release/v1.33.1/bin/linux/arm64/kubectl && \
-    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl
+    chmod +x kubectl && mv kubectl $HOME/.local/bin/kubectl
 
 
 # stage: ipython
-# setup for ipython
 RUN uv tool install --python 3.11 ipython
 
 
 # stage: ranger
-# setup for ranger
 RUN uv tool install ranger-fm
 
 
 # stage: sysutils
-# setup for sysutils
 RUN sudo dnf install -y procps iproute --skip-broken
 
 
 # stage: openssh
-# setup for openssh
 RUN sudo dnf install -y openssh-server --skip-broken
 
 
 # stage: ssh
-# setup for ssh
 RUN sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
     sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config && \
@@ -177,24 +165,9 @@ RUN sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_conf
 
 
 # stage: docker
-# setup for docker
 RUN sudo dnf -y install dnf-plugins-core && \
     sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo && \
     sudo dnf install -y docker-ce-cli
-
-
-# stage: dotsync
-# setup for dotsync
-RUN curl -L https://github.com/neelabalan/tools/releases/download/dotsync-v0.0.2/dotsync-linux-aarch64.tar.gz | tar xz
-RUN sudo mv dotsync /usr/local/bin/
-
-
-# stage: dotfiles
-# file copy for dotfiles
-COPY --chown=$USERNAME:$USERNAME dotsync.json dotsync.json
-# setup for dotfiles
-RUN dotsync init --config $HOME/dotsync.json
-RUN dotsync setup --profile workstation-arm
 
 
 
