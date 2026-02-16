@@ -134,7 +134,6 @@ title()
     PS1=${ORIG}${TITLE}
 }
 
-[ -f ~/.fzf.bash ] && source ~/.fzf.bash
 eval "$(fzf --bash)"
 
 code () { 

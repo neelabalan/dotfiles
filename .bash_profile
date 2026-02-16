@@ -18,16 +18,30 @@ export VISUAL=vim
 export EDITOR=vim
 
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
-# Set python path using uv if available
+# lazy load NVM - only load when node/npm/nvm is actually used
+lazyload_nvm() {
+    unset -f node npm npx nvm
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+}
+
+node() { lazyload_nvm; node "$@"; }
+npm() { lazyload_nvm; npm "$@"; }
+npx() { lazyload_nvm; npx "$@"; }
+nvm() { lazyload_nvm; nvm "$@"; }
+
+# set python path using uv if available (cached to avoid repeated calls)
 if command -v uv &> /dev/null; then
-    for dir in $(uv python dir)/*/bin; do
-        if [ -d "$dir" ]; then
-            export PATH="$dir:$PATH"
-        fi
-    done
+    # cache the result to avoid running this expensive command every time
+    if [ -z "$UV_PYTHON_PATHS_LOADED" ]; then
+        for dir in $(uv python dir 2>/dev/null)/*/bin; do
+            if [ -d "$dir" ]; then
+                export PATH="$dir:$PATH"
+            fi
+        done
+        export UV_PYTHON_PATHS_LOADED=1
+    fi
 fi
 
 [[ -f ~/.bashrc ]] && source ~/.bashrc
