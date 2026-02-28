@@ -3,6 +3,7 @@
 # python3.11+
 import argparse
 import json
+import os
 import pathlib
 import sqlite3
 import subprocess
@@ -15,15 +16,14 @@ DELIMITER = "\x1f"
 
 def init(args):
     cm_path.parent.mkdir(parents=True, exist_ok=True)
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("""
-    CREATE TABLE shellcommand (
-        command TEXT NOT NULL UNIQUE,
-        tag TEXT,
-        description TEXT
-    )
-    """)
+    with get_db() as db:
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS shellcommand (
+            command TEXT NOT NULL UNIQUE,
+            tag TEXT,
+            description TEXT
+        )
+        """)
 
 
 def get_db() -> sqlite3.Connection:
@@ -35,31 +35,35 @@ def get_db() -> sqlite3.Connection:
 def open_temp_file(template: dict[str, str] | None = None) -> tuple[str, int]:
     if not template:
         template = {"command": "", "tag": "", "description": ""}
-    _, filename = tempfile.mkstemp(suffix=".json", text=True)
-    with open(filename, "w") as _file:
-        json.dump(template, _file, indent=4)
-    write_status = subprocess.call(["vi", filename])
-    return filename, write_status
+    fd, filename = tempfile.mkstemp(suffix=".json", text=True)
+    try:
+        with os.fdopen(fd, "w") as _file:
+            json.dump(template, _file, indent=4)
+        write_status = subprocess.call(["vi", filename])
+        return filename, write_status
+    except Exception:
+        os.unlink(filename)
+        raise
 
 
 def insert(command: dict[str, str]):
     try:
-        db = get_db()
-        cur = db.cursor()
-        cur.execute("INSERT INTO shellcommand VALUES(?, ?, ?)", (command.get("command"), command.get("tag"), command.get("description")))
-        db.commit()
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO shellcommand VALUES(?, ?, ?)",
+                (command.get("command"), command.get("tag"), command.get("description")),
+            )
     except Exception as err:
         print(f"Exception encountered while saving the command - {err}")
 
 
 def get_commands() -> list[dict[str, str]]:
-    db = get_db()
-    cur = db.cursor()
-    res = cur.execute("SELECT * FROM shellcommand")
-    return [dict(x) for x in res]
+    with get_db() as db:
+        res = db.execute("SELECT * FROM shellcommand")
+        return [dict(x) for x in res]
 
 
-def select_command(command_list: list[dict[str, str]]) -> str:
+def select_command(command_list: list[dict[str, str]]) -> str | None:
     fzf_input = []
     command_map = {}
     for command in command_list:
@@ -69,14 +73,13 @@ def select_command(command_list: list[dict[str, str]]) -> str:
         fzf_input.append(entry)
         command_map[command.get("command")] = (tag, description)
 
-    fzf_command = ["fzf", "--preview-window=up:20%", f"--delimiter={DELIMITER}", "--with-nth=1", "--preview", "echo -e 'Tag: {2}\nDescription: {3}'", "--print0"]
+    fzf_command = ["fzf", "--preview-window=up:20%", f"--delimiter={DELIMITER}", "--with-nth=1", "--preview", "echo -e 'Tag: {2}\nDescription: {3}'"]
     result = subprocess.run(fzf_command, input="\n".join(fzf_input), text=True, capture_output=True)
 
-    selected_line = None
-    if result.returncode == 0:
+    if result.returncode == 0 and result.stdout.strip():
         selected_line = result.stdout.strip().split(DELIMITER)[0]
-        tag, description = command_map[selected_line]
-    return selected_line
+        return selected_line
+    return None
 
 
 def ls(args):
@@ -88,48 +91,65 @@ def ls(args):
 
 def new(args):
     filename, write_status = open_temp_file()
-    result = None
-    with open(filename, "r") as _file:
-        result = json.load(_file)
-    insert(result)
+    try:
+        if write_status != 0:
+            print("Editor exited without saving, aborting.")
+            return
+        with open(filename, "r") as _file:
+            result = json.load(_file)
+        if not result.get("command"):
+            print("No command provided, aborting.")
+            return
+        insert(result)
+    finally:
+        os.unlink(filename)
 
 
 def add(args):
-    selected = subprocess.Popen(
-        "cat ~/.bash_history | fzf",
-        shell=True,
+    history_path = pathlib.Path.home() / ".bash_history"
+    if not history_path.exists():
+        print("No bash history found.")
+        return
+    result = subprocess.run(
+        ["fzf"],
+        stdin=history_path.open("r"),
         stdout=subprocess.PIPE,
-    ).communicate()[0]
-    if selected:
-        command = selected.decode("utf-8").strip()
-        filename, _ = open_temp_file({"command": command, "tag": "", "description": ""})
-        result = None
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return
+    command = result.stdout.strip()
+    filename, write_status = open_temp_file({"command": command, "tag": "", "description": ""})
+    try:
+        if write_status != 0:
+            print("Editor exited without saving, aborting.")
+            return
         with open(filename, "r") as _file:
-            result = json.load(_file)
-        insert(result)
+            data = json.load(_file)
+        insert(data)
+    finally:
+        os.unlink(filename)
 
 
-def simulate_typing_macos(command):
-    # Use AppleScript to type into the frontmost terminal on macOS
-    script = f'tell application "System Events" to keystroke "{command}"'
+def simulate_typing_macos(command: str):
+    escaped = command.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'tell application "System Events" to keystroke "{escaped}"'
     subprocess.run(["osascript", "-e", script])
 
 
 def edit(args):
-    command = get_commands()
-    selected_command = select_command(command)
+    commands = get_commands()
+    selected_command = select_command(commands)
     # TODO: add edit
     # TODO: also add import/export to JSON
 
 
 def rm(args):
-    command = get_commands()
-    selected_command = select_command(command)
+    commands = get_commands()
+    selected_command = select_command(commands)
     if selected_command:
-        db = get_db()
-        cur = db.cursor()
-        cur.execute("DELETE from shellcommand WHERE command=?", (selected_command,))
-        db.commit()
+        with get_db() as db:
+            db.execute("DELETE from shellcommand WHERE command=?", (selected_command,))
 
 
 def main():
@@ -140,20 +160,20 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
 
-    parser_new = subparsers.add_parser("n", help="Add a new command")
-    parser_new.set_defaults(func=new)
+    sub_new = subparsers.add_parser("n", help="Add a new command")
+    sub_new.set_defaults(func=new)
 
-    parser_new = subparsers.add_parser("init", help="Initial setup")
-    parser_new.set_defaults(func=init)
+    sub_init = subparsers.add_parser("init", help="Initial setup")
+    sub_init.set_defaults(func=init)
 
-    parser_list = subparsers.add_parser("a", help="List all commands")
-    parser_list.set_defaults(func=add)
+    sub_add = subparsers.add_parser("a", help="Add from bash history")
+    sub_add.set_defaults(func=add)
 
-    parser_list = subparsers.add_parser("e", help="Edit/update commands")
-    parser_list.set_defaults(func=edit)
+    sub_edit = subparsers.add_parser("e", help="Edit/update commands")
+    sub_edit.set_defaults(func=edit)
 
-    parser_list = subparsers.add_parser("r", help="Delete commands")
-    parser_list.set_defaults(func=rm)
+    sub_rm = subparsers.add_parser("r", help="Delete commands")
+    sub_rm.set_defaults(func=rm)
 
     parser.set_defaults(func=ls)
 

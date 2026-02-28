@@ -924,7 +924,7 @@ class DevEnvironmentConfig:
             ),
             'cleanup': Tool(
                 setup_template=[
-                    pkg.install_nosudo('clean', 'all')
+                    'dnf clean all'
                     if pkg.pkg_format == 'rpm'
                     else 'sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*'
                 ],
@@ -1250,30 +1250,35 @@ class ImageBuilder:
         if not self._image_exists(image_name):
             return True
 
-        # both exist, compare timestamps as strings
-        dockerfile_time = self._get_dockerfile_creation_time(dockerfile_path)
+        dockerfile_time = self._get_dockerfile_mtime(dockerfile_path)
         image_time = self._get_image_creation_time(image_name)
         logger.debug(f'Dockerfile time {dockerfile_time}, image time {image_time}')
 
         return dockerfile_time > image_time
 
-    def _get_dockerfile_creation_time(self, dockerfile_path: pathlib.Path) -> str:
-        # convert file mtime to Docker's ISO timestamp format for comparison
-        dt = datetime.datetime.fromtimestamp(dockerfile_path.stat().st_mtime, tz=datetime.timezone.utc)
-        formatted = dt.strftime('%Y-%m-%dT%H:%M:%S.%f')
-        return f'{formatted}Z'
+    @staticmethod
+    def _get_dockerfile_mtime(dockerfile_path: pathlib.Path) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(dockerfile_path.stat().st_mtime, tz=datetime.timezone.utc)
 
-    def _get_image_creation_time(self, image_name: str) -> str:
+    def _get_image_creation_time(self, image_name: str) -> datetime.datetime:
         result = subprocess.run(
             ContainerEngine.cmd('inspect', '--format', '{{.Created}}', image_name),
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
-            # epoch as fallback
-            return '1970-01-01T00:00:00.000000+00:00'
+            return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 
-        return result.stdout.strip()
+        raw = result.stdout.strip()
+        # handle both Docker ('2026-01-01T00:00:00.000000000Z') and
+        # Podman ('2026-01-01T00:00:00.000000000+00:00') formats
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z'):
+            try:
+                return datetime.datetime.strptime(raw[:32], fmt)
+            except ValueError:
+                continue
+        logger.warning(f'could not parse image timestamp: {raw}')
+        return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 
     def is_built(self) -> bool:
         return self._image_exists(self.name)
@@ -1479,7 +1484,7 @@ class DevContainerManager:
         return False
 
     @staticmethod
-    def list_deployments() -> list[dict[str, typing.Any]]:
+    def list_deployments() -> None:
         result = subprocess.run(
             ContainerEngine.cmd(
                 'ps',
@@ -1497,10 +1502,8 @@ class DevContainerManager:
             logger.info('devenv deployments:')
             for line in result.stdout.strip().splitlines():
                 logger.info(f'{line}')
-            return []
         else:
             logger.error(f'error listing deployments: {result.stderr.strip()}')
-            return []
 
 
 def get_dockerfile_name(config: DevEnvironmentConfig) -> pathlib.Path:
@@ -1528,7 +1531,7 @@ class CommandHandler:
 
         if not image_builder.is_built():
             logger.info(f'image {image_name} not found, building...')
-            self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), str(dockerfile_path))
+            self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), dockerfile_path.name)
 
             if not image_builder.build():
                 logger.error('failed to build image')

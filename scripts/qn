@@ -6,6 +6,7 @@ import datetime
 import html.parser
 import http.server
 import json
+import os
 import pathlib
 import re
 import socketserver
@@ -60,19 +61,21 @@ class AgeEncryption:
     def decrypt_file(input_file: pathlib.Path, output_file: pathlib.Path, private_key: str) -> bool:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_key_file:
             temp_key_file.write(private_key)
-            temp_key_path = temp_key_file.name
-        pathlib.Path(temp_key_path).chmod(0o600)
+            temp_key_path = pathlib.Path(temp_key_file.name)
+        temp_key_path.chmod(0o600)
 
         try:
-            subprocess.run(['age', '-d', '-i', temp_key_path, '-o', str(output_file), str(input_file)], check=True)
+            subprocess.run(['age', '-d', '-i', str(temp_key_path), '-o', str(output_file), str(input_file)], check=True)
             return True
         except subprocess.CalledProcessError:
             return False
         finally:
             try:
-                with open(temp_key_path, 'w') as f:
-                    f.write('0' * 1024)
-                pathlib.Path(temp_key_path).unlink()
+                with open(temp_key_path, 'wb') as f:
+                    f.write(b'\x00' * 1024)
+                    f.flush()
+                    os.fsync(f.fileno())
+                temp_key_path.unlink()
             except OSError:
                 pass
 
@@ -178,46 +181,43 @@ class LinkManager:
         self._init_db()
 
     def _init_db(self) -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS links (
-                url TEXT PRIMARY KEY,
-                title TEXT,
-                status TEXT,
-                status_code INTEGER,
-                last_checked TIMESTAMP,
-                domain TEXT,
-                first_seen TIMESTAMP,
-                file_path TEXT
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS links (
+                    url TEXT PRIMARY KEY,
+                    title TEXT,
+                    status TEXT,
+                    status_code INTEGER,
+                    last_checked TIMESTAMP,
+                    domain TEXT,
+                    first_seen TIMESTAMP,
+                    file_path TEXT
+                )
+            """)
 
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain ON links(domain)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain ON links(domain)')
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tags (
-                tag_name TEXT PRIMARY KEY,
-                link_count INTEGER DEFAULT 0
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tags (
+                    tag_name TEXT PRIMARY KEY,
+                    link_count INTEGER DEFAULT 0
+                )
+            """)
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS link_tags (
-                url TEXT NOT NULL,
-                tag_name TEXT NOT NULL,
-                PRIMARY KEY (url, tag_name),
-                FOREIGN KEY (url) REFERENCES links(url) ON DELETE CASCADE,
-                FOREIGN KEY (tag_name) REFERENCES tags(tag_name) ON DELETE CASCADE
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS link_tags (
+                    url TEXT NOT NULL,
+                    tag_name TEXT NOT NULL,
+                    PRIMARY KEY (url, tag_name),
+                    FOREIGN KEY (url) REFERENCES links(url) ON DELETE CASCADE,
+                    FOREIGN KEY (tag_name) REFERENCES tags(tag_name) ON DELETE CASCADE
+                )
+            """)
 
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_link_tags_url ON link_tags(url)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_link_tags_tag ON link_tags(tag_name)')
-
-        conn.commit()
-        conn.close()
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_link_tags_url ON link_tags(url)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_link_tags_tag ON link_tags(tag_name)')
 
     def extract_urls_from_file(self, file_path: pathlib.Path) -> list[tuple[str, int]]:
         urls = []
@@ -317,7 +317,7 @@ class LinkManager:
 
                 title = None
                 if 'text/html' in content_type:
-                    html_content = response.read().decode('utf-8', errors='ignore')
+                    html_content = response.read(1_000_000).decode('utf-8', errors='ignore')
                     parser = TitleExtractor()
                     parser.feed(html_content)
                     title = parser.title.strip() if parser.title else None
@@ -377,78 +377,80 @@ class LinkManager:
             current_urls[url] = file_path
 
         conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        try:
+            cursor = conn.cursor()
 
-        cursor.execute('SELECT url, first_seen FROM links')
-        db_data = {row[0]: row[1] for row in cursor.fetchall()}
+            cursor.execute('SELECT url, first_seen FROM links')
+            db_data = {row[0]: row[1] for row in cursor.fetchall()}
 
-        orphaned_urls = set(db_data.keys()) - set(current_urls.keys())
+            orphaned_urls = set(db_data.keys()) - set(current_urls.keys())
 
-        if orphaned_urls:
-            print(f'removing {len(orphaned_urls)} orphaned links...')
-            for url in orphaned_urls:
-                cursor.execute('DELETE FROM links WHERE url = ?', (url,))
-                cursor.execute('DELETE FROM link_tags WHERE url = ?', (url,))
+            if orphaned_urls:
+                print(f'removing {len(orphaned_urls)} orphaned links...')
+                for url in orphaned_urls:
+                    cursor.execute('DELETE FROM links WHERE url = ?', (url,))
+                    cursor.execute('DELETE FROM link_tags WHERE url = ?', (url,))
 
-        new_urls = set(current_urls.keys()) - set(db_data.keys())
+            new_urls = set(current_urls.keys()) - set(db_data.keys())
 
-        if new_urls:
-            print(f'fetching metadata for {len(new_urls)} new links...')
+            if new_urls:
+                print(f'fetching metadata for {len(new_urls)} new links...')
 
-            results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                future_to_url = {executor.submit(self.fetch_url_metadata, url): url for url in new_urls}
+                results = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    future_to_url = {executor.submit(self.fetch_url_metadata, url): url for url in new_urls}
 
-                completed = 0
-                for future in concurrent.futures.as_completed(future_to_url):
-                    url = future_to_url[future]
-                    try:
-                        title, status, status_code = future.result()
-                        domain = urllib.parse.urlparse(url).netloc
-                        now = datetime.datetime.now().isoformat()
-                        url_file_path = current_urls[url]
-                        results.append((url, title, status, status_code, now, domain, now, url_file_path))
+                    completed = 0
+                    for future in concurrent.futures.as_completed(future_to_url):
+                        url = future_to_url[future]
+                        try:
+                            title, status, status_code = future.result()
+                            domain = urllib.parse.urlparse(url).netloc
+                            now = datetime.datetime.now().isoformat()
+                            url_file_path = current_urls[url]
+                            results.append((url, title, status, status_code, now, domain, now, url_file_path))
 
-                        completed += 1
-                        if completed % 10 == 0:
-                            print(f'processed {completed}/{len(new_urls)}...')
-                    except Exception as e:
-                        print(f'error processing {url}: {e}')
+                            completed += 1
+                            if completed % 10 == 0:
+                                print(f'processed {completed}/{len(new_urls)}...')
+                        except Exception as e:
+                            print(f'error processing {url}: {e}')
 
-            for result in results:
-                cursor.execute(
-                    """
-                    INSERT INTO links (url, title, status, status_code, last_checked, domain, first_seen, file_path)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    result,
-                )
+                for result in results:
+                    cursor.execute(
+                        """
+                        INSERT INTO links (url, title, status, status_code, last_checked, domain, first_seen, file_path)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        result,
+                    )
 
-        for url, url_file_path in current_urls.items():
-            if url not in new_urls:
-                cursor.execute('UPDATE links SET file_path = ? WHERE url = ?', (url_file_path, url))
+            for url, url_file_path in current_urls.items():
+                if url not in new_urls:
+                    cursor.execute('UPDATE links SET file_path = ? WHERE url = ?', (url_file_path, url))
 
-        print('updating tags...')
-        cursor.execute('DELETE FROM link_tags')
+            print('updating tags...')
+            cursor.execute('DELETE FROM link_tags')
 
-        tag_counts: dict[str, int] = {}
+            tag_counts: dict[str, int] = {}
 
-        for url, (_, _, tags) in all_tagged_urls.items():
-            unique_tags = set(tags)
-            for tag in unique_tags:
-                cursor.execute('INSERT INTO link_tags (url, tag_name) VALUES (?, ?)', (url, tag))
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            for url, (_, _, tags) in all_tagged_urls.items():
+                unique_tags = set(tags)
+                for tag in unique_tags:
+                    cursor.execute('INSERT INTO link_tags (url, tag_name) VALUES (?, ?)', (url, tag))
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
-        for url in regular_urls:
-            cursor.execute('INSERT INTO link_tags (url, tag_name) VALUES (?, ?)', (url, 'untagged'))
-            tag_counts['untagged'] = tag_counts.get('untagged', 0) + 1
+            for url in regular_urls:
+                cursor.execute('INSERT INTO link_tags (url, tag_name) VALUES (?, ?)', (url, 'untagged'))
+                tag_counts['untagged'] = tag_counts.get('untagged', 0) + 1
 
-        cursor.execute('DELETE FROM tags')
-        for tag, count in tag_counts.items():
-            cursor.execute('INSERT INTO tags (tag_name, link_count) VALUES (?, ?)', (tag, count))
+            cursor.execute('DELETE FROM tags')
+            for tag, count in tag_counts.items():
+                cursor.execute('INSERT INTO tags (tag_name, link_count) VALUES (?, ?)', (tag, count))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         print(f'\n{len(new_urls)} new links added')
         print(f'{len(current_urls) - len(new_urls)} existing links updated')
@@ -468,12 +470,12 @@ class LinkManager:
         self._update_database(all_tagged_urls, regular_urls)
 
     def audit(self) -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        print('checking link status...')
-        cursor.execute('SELECT url, title, status_code, file_path FROM links WHERE status = "dead"')
-        dead_links = cursor.fetchall()
+            print('checking link status...')
+            cursor.execute('SELECT url, title, status_code, file_path FROM links WHERE status = "dead"')
+            dead_links = cursor.fetchall()
 
         if dead_links:
             print(f'\nDEAD LINKS ({len(dead_links)} found):\n')
@@ -488,19 +490,16 @@ class LinkManager:
         else:
             print('no dead links found')
 
-        conn.close()
-
     def list_tags(self) -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT tag_name, link_count
-            FROM tags
-            ORDER BY link_count DESC, tag_name
-        """)
-        tags = cursor.fetchall()
-        conn.close()
+            cursor.execute("""
+                SELECT tag_name, link_count
+                FROM tags
+                ORDER BY link_count DESC, tag_name
+            """)
+            tags = cursor.fetchall()
 
         if not tags:
             print('no tags found. run "qn url catalog" first.')
@@ -542,27 +541,26 @@ class LinkManager:
             print()
 
     def list_links(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        query = 'SELECT url, title, status, status_code, domain FROM links WHERE 1=1'
-        params = []
+            query = 'SELECT url, title, status, status_code, domain FROM links WHERE 1=1'
+            params = []
 
-        if dead_only:
-            query += ' AND status = "dead"'
+            if dead_only:
+                query += ' AND status = "dead"'
 
-        if domain:
-            query += ' AND domain = ?'
-            params.append(domain)
+            if domain:
+                query += ' AND domain = ?'
+                params.append(domain)
 
-        query += ' ORDER BY domain, url'
+            query += ' ORDER BY domain, url'
 
-        cursor.execute(query, params)
-        links = cursor.fetchall()
+            cursor.execute(query, params)
+            links = cursor.fetchall()
 
         if not links:
             print('no links found')
-            conn.close()
             return
 
         print(f'Links ({len(links)} found):\n')
@@ -580,24 +578,21 @@ class LinkManager:
             if title:
                 print(f'    "{title}"')
 
-        conn.close()
-
     def browse_urls(self, port: int, bind_address: str = '127.0.0.1') -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        query = """
-            SELECT l.url, l.title, l.status, l.status_code, l.domain, l.first_seen,
-                   GROUP_CONCAT(lt.tag_name, '|') as tags
-            FROM links l
-            LEFT JOIN link_tags lt ON l.url = lt.url
-            GROUP BY l.url
-            ORDER BY l.domain, l.url
-        """
+            query = """
+                SELECT l.url, l.title, l.status, l.status_code, l.domain, l.first_seen,
+                       GROUP_CONCAT(lt.tag_name, '|') as tags
+                FROM links l
+                LEFT JOIN link_tags lt ON l.url = lt.url
+                GROUP BY l.url
+                ORDER BY l.domain, l.url
+            """
 
-        cursor.execute(query)
-        links = cursor.fetchall()
-        conn.close()
+            cursor.execute(query)
+            links = cursor.fetchall()
 
         urls_data = []
         for url, title, status, status_code, link_domain, first_seen, tags in links:
@@ -622,6 +617,9 @@ class LinkManager:
 
         class RequestHandler(http.server.SimpleHTTPRequestHandler):
             def do_GET(self):
+                if self.path not in ('/', '/index.html'):
+                    self.send_error(404)
+                    return
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html')
                 self.end_headers()
@@ -1020,7 +1018,9 @@ def extract_tags_from_file(file_path: pathlib.Path) -> set[str]:
 def get_file_creation_date(file_path: pathlib.Path) -> datetime.datetime:
     try:
         stat = file_path.stat()
-        return datetime.datetime.fromtimestamp(stat.st_ctime)
+        # st_birthtime is actual creation time on macOS; fall back to st_mtime on Linux
+        ctime = getattr(stat, 'st_birthtime', None) or stat.st_mtime
+        return datetime.datetime.fromtimestamp(ctime)
     except OSError:
         return datetime.datetime.min
 
@@ -1195,7 +1195,10 @@ def main() -> None:
     elif args.command == 'url':
         config = load_config()
         notes_dir = get_notes_dir()
-        max_workers = int(config.get('max_workers', '10'))
+        try:
+            max_workers = int(config.get('max_workers', '10'))
+        except ValueError:
+            max_workers = 10
         link_manager = LinkManager(notes_dir, max_workers)
 
         if args.url_command == 'catalog':
@@ -1216,7 +1219,10 @@ def main() -> None:
                     bind_address = user_config.get('bind_address', '127.0.0.1')
                 except (json.JSONDecodeError, OSError):
                     pass
-            port = int(user_port) if user_port else 8765
+            try:
+                port = int(user_port) if user_port else 8765
+            except ValueError:
+                port = 8765
             link_manager.browse_urls(port=port, bind_address=bind_address)
         else:
             print('usage: qn url {catalog,audit,dupes,tags,filter,browse}')
