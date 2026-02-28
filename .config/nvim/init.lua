@@ -1,6 +1,6 @@
 -- bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
-if not vim.loop.fs_stat(lazypath) then
+if not vim.uv.fs_stat(lazypath) then
   vim.fn.system({
     "git",
     "clone",
@@ -14,11 +14,10 @@ vim.opt.rtp:prepend(lazypath)
 
 -- plugin configuration
 require("lazy").setup({
-  -- common utilities
-  "nvim-lua/plenary.nvim",
   -- git signs
   {
     "lewis6991/gitsigns.nvim",
+    event = "BufReadPre",
     config = function()
       require("gitsigns").setup({
         current_line_blame = true,
@@ -69,17 +68,21 @@ require("lazy").setup({
     -- modern fuzzy finder
     "nvim-telescope/telescope.nvim",  
     dependencies = { "nvim-lua/plenary.nvim" },
-    config = function()
-      vim.keymap.set('n', '<C-p>', '<cmd>Telescope find_files<cr>')
-      vim.keymap.set('n', '<leader>fg', '<cmd>Telescope live_grep<cr>')
-    end
+    cmd = "Telescope",
+    keys = {
+      { '<C-p>', '<cmd>Telescope find_files<cr>' },
+      { '<leader>fg', '<cmd>Telescope live_grep<cr>' },
+    },
   },
   {
     -- modern file explorer
     "nvim-tree/nvim-tree.lua",        
+    cmd = "NvimTreeToggle",
+    keys = {
+      { '<C-n>', '<cmd>NvimTreeToggle<cr>' },
+    },
     config = function()
       require("nvim-tree").setup()
-      vim.keymap.set('n', '<C-n>', '<cmd>NvimTreeToggle<cr>')
     end
   },
   {

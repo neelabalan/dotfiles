@@ -29,19 +29,16 @@ fi
 # update the values of LINES and COLUMNS.
 shopt -s checkwinsize
 
-case "$TERM" in
-    xterm-color|*-256color) color_prompt=yes;;
-esac
-
-force_color_prompt=yes
-
 alias gc='git clone'
 alias cls='printf "\033[2J\033[H\033[3J"'
-alias man='man "$1" | vim -'
 alias r='ranger'
 alias pi='ipython3'
-alias bat='batcat --theme TwoDark'
-alias fd='fdfind'
+if command -v batcat &>/dev/null; then
+    alias bat='batcat --theme TwoDark'
+fi
+if command -v fdfind &>/dev/null; then
+    alias fd='fdfind'
+fi
 alias ll='eza -alF'
 alias ls='eza'
 alias svim='sudo vim'
@@ -51,7 +48,9 @@ alias k='kubectl'
 alias yz='yazi'
 alias sbrc='source ~/.bashrc'
 alias vbrc='vi ~/.bashrc'
-alias open='command -v open >/dev/null 2>&1 && open "$@" || command -v start >/dev/null 2>&1 && start "$@" || echo "No open command found"'
+if ! command -v open &>/dev/null; then
+    open() { xdg-open "$@" 2>/dev/null || start "$@"; }
+fi
 
 # Function to search GitHub for a commit hash or pull requests
 searchcommit() {

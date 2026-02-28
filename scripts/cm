@@ -128,7 +128,7 @@ def rm(args):
     if selected_command:
         db = get_db()
         cur = db.cursor()
-        cur.execute(f"DELETE from shellcommand WHERE command='{selected_command}'")
+        cur.execute("DELETE from shellcommand WHERE command=?", (selected_command,))
         db.commit()
 
 
