@@ -1243,48 +1243,8 @@ class ImageBuilder:
             ).stdout.strip()
         )
 
-    def _dockerfile_is_newer(self, dockerfile_path: pathlib.Path, image_name: str) -> bool:
-        if not dockerfile_path.exists():
-            return False
-
-        if not self._image_exists(image_name):
-            return True
-
-        dockerfile_time = self._get_dockerfile_mtime(dockerfile_path)
-        image_time = self._get_image_creation_time(image_name)
-        logger.debug(f'Dockerfile time {dockerfile_time}, image time {image_time}')
-
-        return dockerfile_time > image_time
-
-    @staticmethod
-    def _get_dockerfile_mtime(dockerfile_path: pathlib.Path) -> datetime.datetime:
-        return datetime.datetime.fromtimestamp(dockerfile_path.stat().st_mtime, tz=datetime.timezone.utc)
-
-    def _get_image_creation_time(self, image_name: str) -> datetime.datetime:
-        result = subprocess.run(
-            ContainerEngine.cmd('inspect', '--format', '{{.Created}}', image_name),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
-
-        raw = result.stdout.strip()
-        # handle both Docker ('2026-01-01T00:00:00.000000000Z') and
-        # Podman ('2026-01-01T00:00:00.000000000+00:00') formats
-        for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z'):
-            try:
-                return datetime.datetime.strptime(raw[:32], fmt)
-            except ValueError:
-                continue
-        logger.warning(f'could not parse image timestamp: {raw}')
-        return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
-
     def is_built(self) -> bool:
         return self._image_exists(self.name)
-
-    def needs_rebuild(self) -> bool:
-        return self._dockerfile_is_newer(self.dockerfile_path, self.name)
 
     def build(self) -> bool:
         logger.info(f'building image: {self.name}')
@@ -1529,15 +1489,15 @@ class CommandHandler:
         image_name = ImageBuilder.get_image_tag(config)
         image_builder = ImageBuilder(image_name, dockerfile_path, config.host_arch)
 
-        if not image_builder.is_built():
-            logger.info(f'image {image_name} not found, building...')
+        if self.args.rebuild:
+            logger.info(f'rebuilding image: {image_name}...')
             self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), dockerfile_path.name)
-
             if not image_builder.build():
                 logger.error('failed to build image')
                 sys.exit(1)
-        elif image_builder.needs_rebuild():
-            logger.info('Dockerfile newer than image; rebuilding...')
+        elif not image_builder.is_built():
+            logger.info(f'image {image_name} not found, building...')
+            self.artifact_repo.save_artifact(DockerfileBuilder(config).build(), dockerfile_path.name)
             if not image_builder.build():
                 logger.error('failed to build image')
                 sys.exit(1)
@@ -1695,6 +1655,7 @@ Environment:
         help='profile name to use (default: workstation)',
     )
     spin_parser.add_argument('--name', help='container name')
+    spin_parser.add_argument('--rebuild', action='store_true', help='force rebuild the image from a fresh Dockerfile')
 
     # build command args
     build_parser = subparsers.add_parser('build', help='build development environment')
