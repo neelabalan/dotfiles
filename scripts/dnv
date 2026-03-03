@@ -676,7 +676,7 @@ class DevEnvironmentConfig:
                 ],
             ),
             'tokei': ToolWithArch(
-                depends_on=['rust'],
+                depends_on=['rust', 'gcc'],
                 version='12.1.2',
                 arch_map={
                     'x86_64': 'x86_64',
@@ -686,7 +686,7 @@ class DevEnvironmentConfig:
                 setup_template=['cargo install tokei --version <%>version --locked'],
             ),
             'eza': ToolWithArch(
-                depends_on=['rust'],
+                depends_on=['rust', 'gcc'],
                 version='0.21.1',
                 arch_map={
                     'x86_64': 'x86_64',
