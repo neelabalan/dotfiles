@@ -41,8 +41,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo $PACKAGE
-
 TMPDIR=$(mktemp -d -t pkgsize-XXXXX)
 VENV_DIR="$TMPDIR/.venv"
 
@@ -62,7 +60,7 @@ else
   python -m pip install "${PACKAGES[@]}" > /dev/null 2>&1
 fi
 
-SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])")
+SITE_DIR=$("$VENV_DIR/bin/python" -c "import site; print(site.getsitepackages()[0])")
 echo "Getting package size from $SITE_DIR"
 SIZE=$(du -sh "$SITE_DIR" | awk '{print $1}')
 echo "Total installed size (including dependencies): $SIZE"

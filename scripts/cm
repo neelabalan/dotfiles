@@ -39,7 +39,8 @@ def open_temp_file(template: dict[str, str] | None = None) -> tuple[str, int]:
     try:
         with os.fdopen(fd, "w") as _file:
             json.dump(template, _file, indent=4)
-        write_status = subprocess.call(["vi", filename])
+        editor = os.environ.get("EDITOR", "vi")
+        write_status = subprocess.call([editor, filename])
         return filename, write_status
     except Exception:
         os.unlink(filename)
@@ -131,17 +132,38 @@ def add(args):
         os.unlink(filename)
 
 
-def simulate_typing_macos(command: str):
-    escaped = command.replace("\\", "\\\\").replace('"', '\\"')
-    script = f'tell application "System Events" to keystroke "{escaped}"'
-    subprocess.run(["osascript", "-e", script])
+def update(command: str, tag: str | None, description: str | None):
+    with get_db() as db:
+        db.execute(
+            "UPDATE shellcommand SET tag = ?, description = ? WHERE command = ?",
+            (tag, description, command),
+        )
 
 
 def edit(args):
     commands = get_commands()
     selected_command = select_command(commands)
-    # TODO: add edit
-    # TODO: also add import/export to JSON
+    if not selected_command:
+        return
+    existing = next((c for c in commands if c.get("command") == selected_command), None)
+    filename, write_status = open_temp_file(existing)
+    try:
+        if write_status != 0:
+            print("Editor exited without saving, aborting.")
+            return
+        with open(filename, "r") as _file:
+            result = json.load(_file)
+        if not result.get("command"):
+            print("No command provided, aborting.")
+            return
+        if result.get("command") != selected_command:
+            with get_db() as db:
+                db.execute("DELETE FROM shellcommand WHERE command=?", (selected_command,))
+            insert(result)
+        else:
+            update(result.get("command"), result.get("tag"), result.get("description"))
+    finally:
+        os.unlink(filename)
 
 
 def rm(args):

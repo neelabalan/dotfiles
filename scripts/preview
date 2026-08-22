@@ -52,4 +52,13 @@ FIRST=$(($CENTER-$LINES/3))
 FIRST=$(($FIRST < 1 ? 1 : $FIRST))
 LAST=$((${FIRST}+${LINES}-1))
 
-batcat --color always --style numbers,changes,grid --terminal-width=$(tput cols) --line-range $FIRST:$LAST "$FILE"
+if command -v bat > /dev/null 2>&1; then
+  BAT_CMD=bat
+elif command -v batcat > /dev/null 2>&1; then
+  BAT_CMD=batcat
+else
+  echo "bat/batcat not found in PATH"
+  exit 1
+fi
+
+"$BAT_CMD" --color always --style numbers,changes,grid --terminal-width=$(tput cols) --line-range $FIRST:$LAST "$FILE"

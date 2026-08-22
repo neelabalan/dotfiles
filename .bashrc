@@ -92,7 +92,7 @@ searchcommit() {
         return 2
     fi
 }
-vman() 
+vman()
 {
     if [ $# -eq 0 ]; then
         /usr/bin/man
@@ -135,7 +135,7 @@ title()
 
 eval "$(fzf --bash)"
 
-code () { 
+code () {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         VSCODE_CWD="$PWD" command open -n -b "com.microsoft.VSCode" --args $*
