@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+
+# python3.11+
+import argparse
+import datetime
+import hashlib
+import pathlib
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+DELIMITER = "\x1f"
+DEFAULT_MAX_ENTRIES = 500
+DEFAULT_MAX_SIZE = 200_000
+DEFAULT_INTERVAL = 1.0
+SERVICE_LABEL = "com.dotfiles.clipwatch"
+
+clip_dir = pathlib.Path.home() / ".local" / "clip"
+db_path = clip_dir / "clip.db"
+
+
+def clipboard_copy_cmd() -> list[str]:
+    if shutil.which("pbcopy"):
+        return ["pbcopy"]
+    if shutil.which("wl-copy"):
+        return ["wl-copy"]
+    if shutil.which("xclip"):
+        return ["xclip", "-selection", "clipboard"]
+    if shutil.which("xsel"):
+        return ["xsel", "--clipboard", "--input"]
+    return []
+
+
+def clipboard_paste_cmd() -> list[str]:
+    if shutil.which("pbpaste"):
+        return ["pbpaste"]
+    if shutil.which("wl-paste"):
+        return ["wl-paste", "--no-newline"]
+    if shutil.which("xclip"):
+        return ["xclip", "-selection", "clipboard", "-o"]
+    if shutil.which("xsel"):
+        return ["xsel", "--clipboard", "--output"]
+    return []
+
+
+def clipboard_copy(text: str) -> None:
+    cmd = clipboard_copy_cmd()
+    if not cmd:
+        sys.exit("no clipboard utility found (pbcopy/wl-copy/xclip/xsel)")
+    subprocess.run(cmd, input=text.encode("utf-8"), check=True)
+
+
+def clipboard_paste() -> str:
+    cmd = clipboard_paste_cmd()
+    if not cmd:
+        sys.exit("no clipboard utility found (pbpaste/wl-paste/xclip/xsel)")
+    result = subprocess.run(cmd, capture_output=True)
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def get_db() -> sqlite3.Connection:
+    clip_dir.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(db_path)
+    db.row_factory = sqlite3.Row
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS clip_entry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            hash TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            last_used_at TEXT NOT NULL,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            use_count INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    return db
+
+
+def now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def record_content(db: sqlite3.Connection, content: str) -> None:
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    existing = db.execute("SELECT id FROM clip_entry WHERE hash = ?", (content_hash,)).fetchone()
+    if existing:
+        db.execute(
+            "UPDATE clip_entry SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
+            (now(), existing["id"]),
+        )
+    else:
+        db.execute(
+            "INSERT INTO clip_entry (content, hash, created_at, last_used_at) VALUES (?, ?, ?, ?)",
+            (content, content_hash, now(), now()),
+        )
+    db.commit()
+
+
+def trim_history(db: sqlite3.Connection, max_entries: int) -> None:
+    rows = db.execute("SELECT id FROM clip_entry WHERE pinned = 0 ORDER BY last_used_at DESC").fetchall()
+    stale_ids = [row["id"] for row in rows[max_entries:]]
+    if not stale_ids:
+        return
+    db.executemany("DELETE FROM clip_entry WHERE id = ?", [(entry_id,) for entry_id in stale_ids])
+    db.commit()
+
+
+def get_entries(db: sqlite3.Connection) -> list[sqlite3.Row]:
+    return db.execute("SELECT * FROM clip_entry ORDER BY pinned DESC, last_used_at DESC").fetchall()
+
+
+def snippet(content: str, width: int = 120) -> str:
+    flat = " ".join(content.split())
+    return flat if len(flat) <= width else flat[: width - 1] + "\u2026"
+
+
+def build_fzf_lines(entries: list[sqlite3.Row]) -> list[str]:
+    lines = []
+    for entry in entries:
+        star = "\u2605" if entry["pinned"] else " "
+        lines.append(f"{entry['id']}{DELIMITER}{star} {snippet(entry['content'])}")
+    return lines
+
+
+def pick_entries(db: sqlite3.Connection, multi: bool = False) -> list[sqlite3.Row]:
+    entries = get_entries(db)
+    if not entries:
+        print("no clipboard history yet, run `clip watch` in the background to start recording", file=sys.stderr)
+        return []
+
+    entries_by_id = {str(entry["id"]): entry for entry in entries}
+    self_path = pathlib.Path(__file__).resolve()
+    fzf_cmd = [
+        "fzf",
+        f"--delimiter={DELIMITER}",
+        "--with-nth=2",
+        "--preview", f"{self_path} show {{1}}",
+        "--preview-window=down:50%:wrap",
+        "--prompt=clip> ",
+    ]
+    if multi:
+        fzf_cmd.append("--multi")
+
+    result = subprocess.run(fzf_cmd, input="\n".join(build_fzf_lines(entries)), text=True, capture_output=True)
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    selected_ids = [line.split(DELIMITER)[0] for line in result.stdout.strip().split("\n")]
+    return [entries_by_id[entry_id] for entry_id in selected_ids if entry_id in entries_by_id]
+
+
+def cmd_ls(args: argparse.Namespace) -> None:
+    db = get_db()
+    selected = pick_entries(db)
+    if not selected:
+        return
+    entry = selected[0]
+    if args.print:
+        print(entry["content"])
+        return
+    clipboard_copy(entry["content"])
+    record_content(db, entry["content"])
+    print(f"copied entry #{entry['id']} to clipboard ({len(entry['content'])} chars)")
+
+
+def cmd_show(args: argparse.Namespace) -> None:
+    db = get_db()
+    row = db.execute("SELECT content FROM clip_entry WHERE id = ?", (args.id,)).fetchone()
+    if row:
+        print(row["content"])
+
+
+def cmd_rm(args: argparse.Namespace) -> None:
+    db = get_db()
+    selected = pick_entries(db, multi=True)
+    if not selected:
+        return
+    db.executemany("DELETE FROM clip_entry WHERE id = ?", [(entry["id"],) for entry in selected])
+    db.commit()
+    print(f"deleted {len(selected)} entries")
+
+
+def cmd_pin(args: argparse.Namespace) -> None:
+    db = get_db()
+    selected = pick_entries(db, multi=True)
+    if not selected:
+        return
+    new_state = 1 if args.action == "pin" else 0
+    db.executemany("UPDATE clip_entry SET pinned = ? WHERE id = ?", [(new_state, entry["id"]) for entry in selected])
+    db.commit()
+    verb = "pinned" if new_state else "unpinned"
+    print(f"{verb} {len(selected)} entries")
+
+
+def cmd_clear(args: argparse.Namespace) -> None:
+    db = get_db()
+    if args.all:
+        count = db.execute("SELECT COUNT(*) c FROM clip_entry").fetchone()["c"]
+        db.execute("DELETE FROM clip_entry")
+    else:
+        count = db.execute("SELECT COUNT(*) c FROM clip_entry WHERE pinned = 0").fetchone()["c"]
+        db.execute("DELETE FROM clip_entry WHERE pinned = 0")
+    db.commit()
+    scope = "all" if args.all else "unpinned"
+    print(f"cleared {count} {scope} entries")
+
+
+def read_clipboard_once(previous: str | None) -> str | None:
+    try:
+        current = clipboard_paste()
+    except SystemExit:
+        raise
+    except OSError:
+        return previous
+    return current
+
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    db = get_db()
+    print(f"watching clipboard every {args.interval}s (db: {db_path}), ctrl-c to stop")
+    last_seen = read_clipboard_once(None)
+    while True:
+        current = read_clipboard_once(last_seen)
+        if current and current != last_seen and current.strip():
+            if len(current.encode("utf-8", errors="ignore")) <= args.max_size:
+                record_content(db, current)
+                trim_history(db, args.max_entries)
+        last_seen = current
+        time.sleep(args.interval)
+
+
+def macos_service_paths() -> tuple[pathlib.Path, pathlib.Path]:
+    plist_dir = pathlib.Path.home() / "Library" / "LaunchAgents"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    return plist_dir / f"{SERVICE_LABEL}.plist", clip_dir / "logs"
+
+
+def install_macos_service(python: str, self_path: pathlib.Path) -> None:
+    plist_path, log_dir = macos_service_paths()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>{SERVICE_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{python}</string>
+        <string>{self_path}</string>
+        <string>watch</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>{log_dir}/watch.log</string>
+    <key>StandardErrorPath</key><string>{log_dir}/watch.err</string>
+</dict>
+</plist>
+"""
+    plist_path.write_text(plist_content)
+    print(f"wrote {plist_path}")
+    print(f"run: launchctl load -w {plist_path}")
+
+
+def install_linux_service(python: str, self_path: pathlib.Path) -> None:
+    unit_dir = pathlib.Path.home() / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    unit_path = unit_dir / "clip-watch.service"
+    unit_content = f"""[Unit]
+Description=Clipboard history watcher (clip watch)
+
+[Service]
+ExecStart={python} {self_path} watch
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+"""
+    unit_path.write_text(unit_content)
+    print(f"wrote {unit_path}")
+    print("run: systemctl --user enable --now clip-watch.service")
+
+
+def cmd_install_service(args: argparse.Namespace) -> None:
+    self_path = pathlib.Path(__file__).resolve()
+    python = shutil.which("python3") or sys.executable
+    if sys.platform == "darwin":
+        install_macos_service(python, self_path)
+    elif sys.platform.startswith("linux"):
+        install_linux_service(python, self_path)
+    else:
+        sys.exit(f"unsupported platform: {sys.platform}")
+
+
+def watcher_is_running() -> bool | None:
+    try:
+        result = subprocess.run(["pgrep", "-f", f"{pathlib.Path(__file__).name} watch"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return None
+    return bool(result.stdout.strip())
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    if not db_path.exists():
+        print("no history db yet, `clip watch` has not run")
+        return
+    db = get_db()
+    total = db.execute("SELECT COUNT(*) c FROM clip_entry").fetchone()["c"]
+    pinned = db.execute("SELECT COUNT(*) c FROM clip_entry WHERE pinned = 1").fetchone()["c"]
+    print(f"db: {db_path}")
+    print(f"entries: {total} ({pinned} pinned)")
+    running = watcher_is_running()
+    status = "unknown" if running is None else ("running" if running else "not running")
+    print(f"watcher: {status}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="clip", description="clipboard history manager")
+    subparsers = parser.add_subparsers(dest="command")
+
+    sub_ls = subparsers.add_parser("ls", help="browse history (default)")
+    sub_ls.add_argument("--print", action="store_true", help="print selection instead of copying it")
+    sub_ls.set_defaults(func=cmd_ls)
+
+    sub_watch = subparsers.add_parser("watch", help="record clipboard changes (foreground)")
+    sub_watch.add_argument("--interval", type=float, default=DEFAULT_INTERVAL, help="poll interval in seconds")
+    sub_watch.add_argument("--max-entries", type=int, default=DEFAULT_MAX_ENTRIES, help="max unpinned entries to keep")
+    sub_watch.add_argument("--max-size", type=int, default=DEFAULT_MAX_SIZE, help="skip clipboard content larger than this many bytes")
+    sub_watch.set_defaults(func=cmd_watch)
+
+    sub_show = subparsers.add_parser("show", help="print raw content of an entry, used by fzf preview")
+    sub_show.add_argument("id", type=int)
+    sub_show.set_defaults(func=cmd_show)
+
+    sub_rm = subparsers.add_parser("rm", help="delete selected entries")
+    sub_rm.set_defaults(func=cmd_rm)
+
+    sub_pin = subparsers.add_parser("pin", help="pin selected entries, excluded from trimming")
+    sub_pin.set_defaults(func=cmd_pin, action="pin")
+
+    sub_unpin = subparsers.add_parser("unpin", help="unpin selected entries")
+    sub_unpin.set_defaults(func=cmd_pin, action="unpin")
+
+    sub_clear = subparsers.add_parser("clear", help="delete unpinned history")
+    sub_clear.add_argument("--all", action="store_true", help="also delete pinned entries")
+    sub_clear.set_defaults(func=cmd_clear)
+
+    sub_install = subparsers.add_parser("install-service", help="install a launchd/systemd unit for `clip watch`")
+    sub_install.set_defaults(func=cmd_install_service)
+
+    sub_status = subparsers.add_parser("status", help="show db location, entry count, watcher status")
+    sub_status.set_defaults(func=cmd_status)
+
+    parser.set_defaults(func=cmd_ls, print=False)
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
