@@ -89,11 +89,13 @@
 # of ranger.
 # ===================================================================
 
-from __future__ import absolute_import, division, print_function
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
-from collections import deque
 import os
 import re
+from collections import deque
 
 from ranger.api.commands import Command
 
@@ -810,8 +812,9 @@ class load_copy_buffer(Command):
 
     def execute(self):
         import sys
-        from ranger.container.file import File
         from os.path import exists
+
+        from ranger.container.file import File
 
         fname = self.fm.datapath(self.copy_buffer_filename)
         unreadable = IOError if sys.version_info[0] < 3 else OSError
@@ -866,8 +869,10 @@ class mkdir(Command):
     """
 
     def execute(self):
-        from os.path import join, expanduser, lexists
         from os import makedirs
+        from os.path import expanduser
+        from os.path import join
+        from os.path import lexists
 
         dirname = join(self.fm.thisdir.path, expanduser(self.rest(1)))
         if not lexists(dirname):
@@ -886,7 +891,9 @@ class touch(Command):
     """
 
     def execute(self):
-        from os.path import join, expanduser, lexists
+        from os.path import expanduser
+        from os.path import join
+        from os.path import lexists
 
         fname = join(self.fm.thisdir.path, expanduser(self.rest(1)))
         if not lexists(fname):
@@ -955,7 +962,7 @@ class eval_(Command):
                     p(result)
         except Exception as err:  # pylint: disable=broad-except
             fm.notify(
-                'The error `%s` was caused by evaluating the ' 'following code: `%s`' % (err, code),
+                'The error `%s` was caused by evaluating the following code: `%s`' % (err, code),
                 bad=True,
             )
 
@@ -967,8 +974,9 @@ class rename(Command):
     """
 
     def execute(self):
-        from ranger.container.file import File
         from os import access
+
+        from ranger.container.file import File
 
         new_name = self.rest(1)
 
@@ -1013,7 +1021,8 @@ class rename_append(Command):
         self._flag_remove = 'r' in flags
 
     def execute(self):
-        from ranger import MACRO_DELIMITER, MACRO_DELIMITER_ESC
+        from ranger import MACRO_DELIMITER
+        from ranger import MACRO_DELIMITER_ESC
 
         tfile = self.fm.thisfile
         relpath = tfile.relative_path.replace(MACRO_DELIMITER, MACRO_DELIMITER_ESC)
@@ -1089,6 +1098,7 @@ class bulkrename(Command):
     def execute(self):  # pylint: disable=too-many-locals,too-many-statements
         import sys
         import tempfile
+
         from ranger.container.file import File
         from ranger.ext.shell_escape import shell_escape as esc
 
@@ -1598,7 +1608,8 @@ class filter_stack(Command):
     """
 
     def execute(self):
-        from ranger.core.filter_stack import SIMPLE_FILTERS, FILTER_COMBINATORS
+        from ranger.core.filter_stack import FILTER_COMBINATORS
+        from ranger.core.filter_stack import SIMPLE_FILTERS
 
         subcommand = self.arg(1)
 

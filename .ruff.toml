@@ -1,13 +1,20 @@
+# apply safe fixes automatically when running ruff check --fix or ruff format
 fix = true
+# max line length before ruff flags E501 and wraps in the formatter
 line-length = 121
 
 [lint]
+# F: pyflakes (unused imports, undefined names)
+# W: pycodestyle warnings (trailing whitespace, line length)
+# I001: isort import sorting
 select = ["F", "W", "I001"]
+# only these codes get auto-fixed, everything else is reported only
 fixable = ["I001", "F401"]
 
 [format]
-# Prefer single quotes over double quotes.
+# prefer single quotes over double quotes
 quote-style = "single"
 
 [lint.isort]
+# one import per line instead of grouped `import a, b`
 force-single-line = true

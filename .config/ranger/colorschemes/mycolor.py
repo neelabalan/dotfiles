@@ -1,21 +1,19 @@
+from ranger.gui.color import BRIGHT
+from ranger.gui.color import black
+from ranger.gui.color import blue
+from ranger.gui.color import bold
+from ranger.gui.color import cyan
+from ranger.gui.color import default
+from ranger.gui.color import default_colors
+from ranger.gui.color import dim
+from ranger.gui.color import green
+from ranger.gui.color import magenta
+from ranger.gui.color import normal
+from ranger.gui.color import red
+from ranger.gui.color import reverse
+from ranger.gui.color import white
+from ranger.gui.color import yellow
 from ranger.gui.colorscheme import ColorScheme
-from ranger.gui.color import (
-    black,
-    blue,
-    cyan,
-    green,
-    magenta,
-    red,
-    white,
-    yellow,
-    default,
-    normal,
-    bold,
-    reverse,
-    dim,
-    BRIGHT,
-    default_colors,
-)
 
 
 class Default(ColorScheme):

@@ -7,15 +7,14 @@
 # A simple command for demonstration purposes follows.
 # -----------------------------------------------------------------------------
 
-from __future__ import absolute_import, division, print_function
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 # You can import any python module as needed.
 import os
 
 # You always need to import ranger.api.commands here to get the Command class:
-from ranger.api.commands import Command
-
-
 from ranger.api.commands import Command
 
 
@@ -43,8 +42,8 @@ class rfz(Command):
     """
 
     def execute(self):
-        import subprocess
         import os.path
+        import subprocess
 
         fzf = self.fm.execute_command('fzf +m', universal_newlines=True, stdout=subprocess.PIPE)
         stdout, stderr = fzf.communicate()
