@@ -1,38 +1,38 @@
 # Go Coding Guidelines
 
-### CRITICAL: Error Handling & Naming
-- NEVER ignore errors. ALWAYS check them explicitly.
-- Error Wrapping: Use `fmt.Errorf("...: %w", err)` to wrap errors with context.
-- Receiver Names: ALWAYS use short, 1-3 letter receiver names (e.g., `f *File`, `s *Server`). NEVER use `self` or `this`.
-- Enforcement: Before outputting Go code, validate that all errors are handled/wrapped and receiver names are concise.
+### Critical: error handling and naming
+- Never ignore errors. Always check them.
+- Wrap errors with `fmt.Errorf("...: %w", err)` for context.
+- Use short receiver names, 1-3 letters (e.g. `f *File`, `s *Server`). Don't use `self` or `this`.
+- Check every function before finishing: errors handled/wrapped, receiver names short.
 
-### Environment & Tooling
+### Environment and tooling
 - Default Go version: 1.21 or above
 - Dependency management: Go modules
 - Formatter: gofmt or goimports
 - Linter: golangci-lint
-- For new projects: Initialize with `go mod init`, run with `go run`, build with `go build`
+- New projects: `go mod init`, run with `go run`, build with `go build`
 
-### Code Style
-- Formatting: Always use gofmt or goimports, follow standard Go formatting conventions
-- Naming: Use camelCase for unexported names, PascalCase for exported names. Keep names concise and clear. Avoid stuttering (e.g., `http.HTTPServer` should be `http.Server`)
-- Error handling: Return errors as the last return value. Use `errors.New()` or `fmt.Errorf()` for error creation
-- Interfaces: Keep interfaces small and focused. Define interfaces where they are used, not where implementations exist. Prefer accepting interfaces and returning concrete types
-- Pointers: Use pointers for large structs or when mutation is needed. For small structs or read-only operations, use values
-- Functions: Keep functions small and focused. Avoid deep nesting (max 2-3 levels). Extract complex logic into helper functions
-- Context: ALWAYS pass `context.Context` as the first argument to functions performing I/O, network requests, or long-running tasks.
-- Comments: Use package-level comments for all packages. Add comments for exported functions, types, and constants. Comments should be complete sentences starting with the name being documented
-- Documentation: Avoid unnecessary comments for obvious code. Document non-obvious behavior, edge cases, and public APIs
-- Concurrency: Use goroutines and channels appropriately. Avoid shared state when possible. Use `sync` package primitives when shared state is necessary
-- Dependencies: Minimize external dependencies, prefer standard library
-- Memory: Be mindful of allocations, reuse buffers when appropriate, use `sync.Pool` for frequently allocated objects
+### Code style
+- Always run gofmt or goimports, follow standard Go formatting.
+- Use camelCase for unexported names, PascalCase for exported names. Keep names short and clear. Avoid stuttering (e.g. `http.Server`, not `http.HTTPServer`).
+- Return errors as the last return value. Create them with `errors.New()` or `fmt.Errorf()`.
+- Keep interfaces small and focused. Define them where they're used, not next to the implementation. Accept interfaces, return concrete types.
+- Use pointers for large structs or when mutation is needed. Use values for small structs or read-only data.
+- Keep functions small and focused. Avoid deep nesting (max 2-3 levels). Extract complex logic into helpers.
+- Pass `context.Context` as the first argument to functions doing I/O, network calls, or long-running work.
+- Add package-level comments for every package. Comment exported functions, types, and constants as full sentences starting with the name being documented.
+- Skip comments on obvious code. Document non-obvious behavior, edge cases, and public APIs.
+- Use goroutines and channels carefully. Avoid shared state where you can. Use `sync` primitives when shared state is unavoidable.
+- Minimize external dependencies, prefer the standard library.
+- Watch allocations, reuse buffers where it helps, use `sync.Pool` for objects allocated often.
 
-### Design Principles
-- For libraries and services: Apply SOLID principles, focus on clear interfaces and separation of concerns
-- For simple tools and scripts: Prioritize simplicity and readability over complex abstractions
-- Composition over inheritance: Use struct embedding and interfaces for code reuse
-- Accept interfaces, return structs: Functions should accept interface parameters and return concrete types
-- Explicit is better than implicit: Make behavior clear, avoid hidden control flow
-- Handle errors explicitly: Don't panic in library code, return errors to callers
-- Zero values are useful: Design types so their zero value is useful and ready to use
-- Keep the happy path left-aligned: Avoid deep nesting by handling errors early and returning
+### Design principles
+- Libraries and services: apply SOLID, focus on clear interfaces and separation of concerns.
+- Simple tools and scripts: favor simplicity and readability over abstraction.
+- Prefer composition over inheritance: use struct embedding and interfaces for reuse.
+- Accept interfaces, return structs.
+- Make behavior explicit, avoid hidden control flow.
+- Return errors to callers instead of panicking in library code.
+- Design zero values to be useful and ready to use.
+- Handle errors early and return, so the happy path stays left-aligned.

@@ -1,29 +1,29 @@
 # Markdown writing guidelines
 
-### CRITICAL: Heading level rule
+### Critical: heading level rule
 
-- NEVER use even-numbered heading levels (##, ####, ######)
-- ALWAYS use odd-numbered heading levels (#, ###, #####)
+- Never use even-numbered heading levels (##, ####, ######).
+- Always use odd-numbered heading levels (#, ###, #####).
 - Examples:
-    - CORRECT: `# Title`, `### Section`, `##### Subsection`
-    - WRONG: `## Title`, `#### Section`, `###### Subsection`
-- Enforcement: Before outputting any markdown, validate that all headings use odd number of hashes. If any even-numbered headings exist, convert them to the nearest odd level.
-- Continuity: NEVER skip heading levels (e.g., do not jump from `#` to `#####` without a `###` in between).
+    - correct: `# Title`, `### Section`, `##### Subsection`
+    - wrong: `## Title`, `#### Section`, `###### Subsection`
+- Check every heading before finishing. Convert any even-level heading to the nearest odd level.
+- Don't skip heading levels (e.g. don't jump from `#` to `#####` without a `###` in between).
 
 ### Style principles
 
-- No emojis anywhere in the document
-- Avoid bold text (`**bold` or `__bold__`) unless absolutely necessary for critical emphasis
-- Prefer bullet points and indentation over creating excessive headings
-- List Markers: ALWAYS use `-` for unordered lists.
-- Balance bullet points with prose - Use paragraphs when explaining concepts that flow naturally as sentences
-- Use backticks for code snippets, variable names, file paths, technical terms and commands
-- Code Blocks: ALWAYS specify the language for syntax highlighting (e.g., ```python, ```bash).
-- Keep writing concise and direct
+- No emojis anywhere in the document.
+- Avoid bold text (`**bold**` or `__bold__`) unless it's needed for critical emphasis.
+- Prefer bullet points and indentation over adding more headings.
+- Use `-` for unordered lists.
+- Balance bullets with prose - use paragraphs where the explanation flows naturally as sentences.
+- Use backticks for code snippets, variable names, file paths, technical terms, and commands.
+- Always specify the language in code blocks for syntax highlighting (e.g. ```python, ```bash).
+- Keep writing concise and direct.
 
 ### Document structure
-- Use headings sparingly - prefer nested bullet points for sub-topics
-- Footnotes: ALWAYS place footnotes at the very end of the document.
+- Use headings sparingly, prefer nested bullet points for sub-topics.
+- Place footnotes at the very end of the document.
 - Example structure:
     ```markdown
     # Main Topic

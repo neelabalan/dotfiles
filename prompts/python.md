@@ -1,47 +1,47 @@
 # Python Coding Guidelines
 
-### Critical: Import rule
-- NEVER use `from X import Y`. This is a strict, non-negotiable rule.
-- ALWAYS use `import X` and reference object with `X.Y`.
+### Critical: import rule
+- Never use `from X import Y`.
+- Always use `import X`, then call `X.Y`.
 - Examples:
-    - CORRECT: `import datetime` and `datetime.datetime.now()`
-    - WRONG: `from datetime import datetime`
-    - CORRECT: `import pathlib` and `pathlib.Path("/some/path")`
-    - WRONG: `from pathlib import Path`
-- Enforcement: Before outputting any Python code, you MUST validate that it contains no `from .. import ..` statements. If any are present, you MUST refactor them to the `import X` style. This rule is your highest priority.
-- Type Hints: ALWAYS use type hints for all function parameters and return types. Use built-in generics (e.g., `list[str]`) as per the style guide.
+    - correct: `import datetime` then `datetime.datetime.now()`
+    - wrong: `from datetime import datetime`
+    - correct: `import pathlib` then `pathlib.Path("/some/path")`
+    - wrong: `from pathlib import Path`
+- Check every script for `from .. import ..` before finishing. Fix any you find. This is the top priority rule.
+- Add type hints to all function parameters and return types. Use built-in generics (e.g. `list[str]`).
 
-### Environment & Tooling
+### Environment and tooling
 - Default Python version: 3.11 or 3.13
 - Package manager: uv
-- Linter/Formatter: ruff
-- For new projects: Initialize with `uv init`, add ruff as dev dependency (`uv add --dev ruff`), and run the project with `uv run`
-- For individual scripts: Use python3.11 directly and run ruff with `uv run ruff check <script.py>` or `uv run ruff format <script.py>`
+- Linter/formatter: ruff
+- New projects: `uv init`, add ruff as a dev dependency (`uv add --dev ruff`), run with `uv run`
+- Single scripts: use python3.11 directly, lint with `uv run ruff check <script.py>` or format with `uv run ruff format <script.py>`
 
-### Code Style
-- Prefer builtin generics (`list[str]`, `dict[str, int]`, `set[int]`) and avoid `typing` aliases like `List`, `Dict`, `Set`.
-- Print statements: Always start with lowercase letter (e.g., `print("exporter to file")`, not `print("Exported to file")`).
-- Error messages: Messages in `print`, `sys.exit`, or exceptions MUST start with a lowercase letter.
-- Comments: Never use inline comments (comment on the same line as code). All comments must be on their own line above the code they describe. Comments should start with a lowercase letter. No emojis should be used in code, comments, or documentation.
-- Avoid creating variables that are used only once, except when the variable is used in a print statement for clarity
-- Avoid new line characters (`\n`) unless absolutely neessary. Never add decorative formatting (no `===` `---`, `***`, etc.)
-- String Formatting: ALWAYS use f-strings for string interpolation. NEVER use `.format()` or `%`.
-- Imports: Single-line imports without `from` keyword (e.g., `import os.path` instead of `from os import path`)
-- File operations: ALWAYS use `pathlib.Path` for all file and path operations. NEVER use `os.path` or `os.makedirs`.
-- Command line arguments: Use `argparse` for CLI argument parsing
-- Documentation: Avoid docstrings and comments unless absolutely necessary. Do not create README.md or any other markdown documents unless explicitly requested by the user.
-- Main Block: ALWAYS use `if __name__ == "__main__":` for scripts intended to be executed.
-- Keep functions small and focused, prefer pure functions where possible. Functions should not exceed 20-30 lines to maintain readability. If a function becomes too long, split it into smaller, well-named helper functions with descriptive names that clearly indicate their purpose. Always try to have a return value in function, avoid returning `None` when possible. Prefer returning empty collections (`[]`, `{}`, `""`) instead of `None`
-- Data structures: Prefer `dataclass` with `frozen=True` for immutability
-- Error handling: Use specific exception types, avoid bare `except` clauses
-- Code structure: Write reusable code, extract common logic into functions, avoid deep nesting of loops (max 2-3 levels)
-- Dependencies: Minimize external dependencies, prefer standard library
-- Memory: Optimize for memory efficiency, avoid unnecessary allocations
-- Naming: Use descriptive names, follow snake_case for functions/variables, PascalCase for classes
+### Code style
+- Use built-in generics (`list[str]`, `dict[str, int]`, `set[int]`). Don't use `typing` aliases like `List`, `Dict`, `Set`.
+- Print statements start with a lowercase letter (e.g. `print("exporter to file")`, not `print("Exported to file")`).
+- Error messages in `print`, `sys.exit`, or exceptions start with a lowercase letter.
+- No inline comments (comment on the same line as code). Put comments on their own line, above the code. Comments start lowercase. No emojis in code, comments, or docs.
+- Don't create a variable that's used only once, unless it's used in a print statement for clarity.
+- Avoid unnecessary `\n`. No decorative formatting (`===`, `---`, `***`, etc.).
+- Use f-strings for string interpolation. Don't use `.format()` or `%`.
+- Write imports as single lines without `from` (e.g. `import os.path`, not `from os import path`).
+- Use `pathlib.Path` for all file and path operations. Don't use `os.path` or `os.makedirs`.
+- Use `argparse` for CLI argument parsing.
+- Skip docstrings and comments unless they're really needed. Don't create README.md or other markdown files unless the user asks for them.
+- Use `if __name__ == "__main__":` for scripts meant to run directly.
+- Keep functions small and focused, ideally under 20-30 lines. Split long functions into smaller, well-named helpers. Prefer functions that return a value over ones that return `None` - return an empty collection (`[]`, `{}`, `""`) instead where possible.
+- Prefer `dataclass` with `frozen=True` for immutable data.
+- Catch specific exception types, not bare `except`.
+- Extract repeated logic into functions. Keep loop nesting to 2-3 levels max.
+- Minimize external dependencies, prefer the standard library.
+- Avoid unnecessary allocations.
+- Use descriptive names: snake_case for functions/variables, PascalCase for classes.
 
-### Design Principles
-- For applications and libraries: Apply SOLID principles strictly (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion)
-- For simple scripts: SOLID principles can be relaxed, prioritize readability and simplicity
-- Use composition over inheritance
-- Favor immutability and stateless functions
-- Keep side effects explicit and isolated
+### Design principles
+- Apps and libraries: follow SOLID principles (single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion).
+- Simple scripts: relax SOLID, favor readability and simplicity.
+- Prefer composition over inheritance.
+- Favor immutable data and stateless functions.
+- Keep side effects explicit and isolated.
