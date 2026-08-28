@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 
 """
 px - a tiny multi-language project runner.
@@ -40,16 +40,16 @@ GITIGNORE_URLS: dict[str, str] = {
 
 DEFAULT_TEMPLATES: dict[str, tuple[str, str | None]] = {
     'python': (
-        'def main():\n    pass\n\n\nif __name__ == \'__main__\':\n    main()\n',
+        "def main():\n    pass\n\n\nif __name__ == '__main__':\n    main()\n",
         'def test_main():\n    pass\n',
     ),
     'js': (
-        'function main() {\n}\n\nmain();\n',
+        'function main() {\n}\n\nmain();\n\nexport {};\n',
         "import { test } from 'node:test';\nimport assert from 'node:assert';\n\n"
         "test('example', () => {\n  assert.ok(true);\n});\n",
     ),
     'ts': (
-        'function main(): void {\n}\n\nmain();\n',
+        'function main(): void {\n}\n\nmain();\n\nexport {};\n',
         "import { test } from 'node:test';\nimport assert from 'node:assert';\n\n"
         "test('example', () => {\n  assert.ok(true);\n});\n",
     ),
@@ -97,9 +97,7 @@ class Config:
 
         for lang, entry in raw.get('languages', {}).items():
             if lang not in EXTENSIONS:
-                raise ValueError(
-                    f"unknown language '{lang}' in {CONFIG_FILENAME}. valid: {', '.join(EXTENSIONS)}"
-                )
+                raise ValueError(f"unknown language '{lang}' in {CONFIG_FILENAME}. valid: {', '.join(EXTENSIONS)}")
             dir_name = entry.get('dir')
             if not dir_name or '/' in dir_name or '\\' in dir_name:
                 raise ValueError(f"language '{lang}' must have a single flat 'dir' name, got: {dir_name!r}")
@@ -223,6 +221,25 @@ class NodeHandlerBase(LanguageHandler):
         if not gitignore.exists():
             download_gitignore(self.language, gitignore)
 
+    def _add_dev_deps(self, *packages: str) -> None:
+        result = subprocess.run(['pnpm', 'add', '-D', *packages], cwd=self.dir, capture_output=True)
+        if result.returncode != 0 and b'ERR_PNPM_IGNORED_BUILDS' in result.stdout + result.stderr:
+            # pnpm >=10 blocks postinstall scripts (e.g. esbuild, used by tsx) behind an
+            # approval gate. approve everything non-interactively, then retry the add so
+            # `pnpm exec` doesn't get stuck re-running a blocked install every time.
+            subprocess.run(['pnpm', 'approve-builds', '--all'], cwd=self.dir, capture_output=True)
+            result = subprocess.run(['pnpm', 'add', '-D', *packages], cwd=self.dir, capture_output=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(f'pnpm add failed: {(result.stdout + result.stderr).decode()}')
+
+    def _has_dep(self, package: str) -> bool:
+        package_json = self.dir / 'package.json'
+        if not package_json.exists():
+            return False
+        data = json.loads(package_json.read_text())
+        return package in data.get('dependencies', {}) or package in data.get('devDependencies', {})
+
     def create(self, path: pathlib.Path) -> None:
         path.write_text(self.entry.source_template)
         print(f'created: {path}')
@@ -243,9 +260,10 @@ class JsHandler(NodeHandlerBase):
 
     def init_project(self) -> None:
         self._pnpm_init()
-        result = subprocess.run(['pnpm', 'list', 'tsx'], cwd=self.dir, capture_output=True)
-        if result.returncode != 0:
-            sh(['pnpm', 'add', '-D', 'tsx'], cwd=self.dir)
+        if self._has_dep('tsx'):
+            subprocess.run(['pnpm', 'approve-builds', '--all'], cwd=self.dir, capture_output=True)
+        else:
+            self._add_dev_deps('tsx')
 
     def check(self, path: pathlib.Path) -> subprocess.CompletedProcess:
         return sh(['node', '--check', str(path)])
@@ -256,9 +274,10 @@ class TsHandler(NodeHandlerBase):
 
     def init_project(self) -> None:
         self._pnpm_init()
-        result = subprocess.run(['pnpm', 'list', 'tsx'], cwd=self.dir, capture_output=True)
-        if result.returncode != 0:
-            sh(['pnpm', 'add', '-D', 'tsx', 'typescript', '@types/node'], cwd=self.dir)
+        if self._has_dep('tsx'):
+            subprocess.run(['pnpm', 'approve-builds', '--all'], cwd=self.dir, capture_output=True)
+        else:
+            self._add_dev_deps('tsx', 'typescript', '@types/node')
 
         tsconfig = self.dir / 'tsconfig.json'
         if not tsconfig.exists():
@@ -273,7 +292,9 @@ class TsHandler(NodeHandlerBase):
                             'esModuleInterop': True,
                             'skipLibCheck': True,
                             'noEmit': True,
-                        }
+                            'types': ['node'],
+                        },
+                        'include': ['*.ts'],
                     },
                     indent=2,
                 )
@@ -282,7 +303,11 @@ class TsHandler(NodeHandlerBase):
             print(f'created: {tsconfig}')
 
     def check(self, path: pathlib.Path) -> subprocess.CompletedProcess:
-        return sh(['pnpm', 'exec', 'tsc', '--noEmit', str(path)], cwd=self.dir)
+        # tsc refuses `tsc <file>` when a tsconfig.json is present in cwd (TS5112), and
+        # --ignoreConfig throws away the tsconfig's compilerOptions entirely. So `check`
+        # type-checks the whole flat ts/ dir via the tsconfig instead of just this file -
+        # every generated file is its own module (via `export {}`), so files don't collide.
+        return sh(['pnpm', 'exec', 'tsc', '--noEmit', '-p', '.'], cwd=self.dir)
 
 
 class RustHandler(LanguageHandler):
