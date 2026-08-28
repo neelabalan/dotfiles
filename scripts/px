@@ -20,48 +20,6 @@ import subprocess
 import sys
 import typing
 
-CONFIG_FILENAME = '.px.json'
-
-EXTENSIONS: dict[str, str] = {
-    'python': '.py',
-    'js': '.js',
-    'ts': '.ts',
-    'rust': '.rs',
-    'go': '.go',
-}
-
-GITIGNORE_URLS: dict[str, str] = {
-    'python': 'https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore',
-    'js': 'https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore',
-    'ts': 'https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore',
-    'rust': 'https://raw.githubusercontent.com/github/gitignore/main/Rust.gitignore',
-    'go': 'https://raw.githubusercontent.com/github/gitignore/main/Go.gitignore',
-}
-
-DEFAULT_TEMPLATES: dict[str, tuple[str, str | None]] = {
-    'python': (
-        "def main():\n    pass\n\n\nif __name__ == '__main__':\n    main()\n",
-        'def test_main():\n    pass\n',
-    ),
-    'js': (
-        'function main() {\n}\n\nmain();\n\nexport {};\n',
-        "import { test } from 'node:test';\nimport assert from 'node:assert';\n\n"
-        "test('example', () => {\n  assert.ok(true);\n});\n",
-    ),
-    'ts': (
-        'function main(): void {\n}\n\nmain();\n\nexport {};\n',
-        "import { test } from 'node:test';\nimport assert from 'node:assert';\n\n"
-        "test('example', () => {\n  assert.ok(true);\n});\n",
-    ),
-    'rust': (
-        'fn main() {\n}\n',
-        '#[test]\nfn it_works() {\n    assert!(true);\n}\n',
-    ),
-    'go': (
-        'package main\n\nfunc main() {\n}\n',
-        'package main\n\nimport "testing"\n\nfunc TestExample(t *testing.T) {\n}\n',
-    ),
-}
 
 
 @dataclasses.dataclass
@@ -73,6 +31,8 @@ class LanguageEntry:
 
 @dataclasses.dataclass
 class Config:
+    FILENAME = '.px.json'
+
     root: pathlib.Path
     editor: str
     languages: dict[str, LanguageEntry]
@@ -80,24 +40,24 @@ class Config:
     @classmethod
     def sample(cls) -> dict[str, typing.Any]:
         languages = {}
-        for lang, ext in EXTENSIONS.items():
-            source_template, test_template = DEFAULT_TEMPLATES[lang]
+        for lang, handler_cls in REGISTRY.items():
             languages[lang] = {
                 'dir': lang,
-                'source_template': source_template,
-                'test_template': test_template,
+                'source_template': handler_cls.source_template,
+                'test_template': handler_cls.test_template,
             }
         return {'editor': 'code', 'languages': languages}
 
     @classmethod
     def load(cls, root: pathlib.Path) -> 'Config':
-        raw = json.loads((root / CONFIG_FILENAME).read_text())
+        raw = json.loads((root / cls.FILENAME).read_text())
         editor = raw.get('editor', 'code')
         languages: dict[str, LanguageEntry] = {}
 
         for lang, entry in raw.get('languages', {}).items():
-            if lang not in EXTENSIONS:
-                raise ValueError(f"unknown language '{lang}' in {CONFIG_FILENAME}. valid: {', '.join(EXTENSIONS)}")
+            if lang not in REGISTRY:
+                valid = ', '.join(REGISTRY.keys())
+                raise ValueError(f"unknown language '{lang}' in {cls.FILENAME}. valid: {valid}")
             dir_name = entry.get('dir')
             if not dir_name or '/' in dir_name or '\\' in dir_name:
                 raise ValueError(f"language '{lang}' must have a single flat 'dir' name, got: {dir_name!r}")
@@ -120,7 +80,8 @@ def sh(args: list[str], cwd: pathlib.Path | None = None) -> subprocess.Completed
 def download_gitignore(language: str, target: pathlib.Path) -> None:
     import urllib.request
 
-    url = GITIGNORE_URLS.get(language)
+    handler_cls = REGISTRY.get(language)
+    url = handler_cls.gitignore_url if handler_cls else None
     if not url:
         return
     try:
@@ -133,6 +94,10 @@ def download_gitignore(language: str, target: pathlib.Path) -> None:
 
 class LanguageHandler(abc.ABC):
     language: str
+    extension: str
+    gitignore_url: str | None
+    source_template: str
+    test_template: str | None
 
     def __init__(self, entry: LanguageEntry, directory: pathlib.Path) -> None:
         self.entry = entry
@@ -145,7 +110,7 @@ class LanguageHandler(abc.ABC):
     def init_project(self) -> None: ...
 
     @abc.abstractmethod
-    def create(self, path: pathlib.Path) -> None: ...
+    def new(self, path: pathlib.Path) -> None: ...
 
     @abc.abstractmethod
     def run(self, path: pathlib.Path) -> subprocess.CompletedProcess: ...
@@ -157,36 +122,44 @@ class LanguageHandler(abc.ABC):
     def check(self, path: pathlib.Path) -> subprocess.CompletedProcess: ...
 
 
+HandlerT = typing.TypeVar('HandlerT', bound=type[LanguageHandler])
+
+
+REGISTRY: dict[str, type[LanguageHandler]] = {}
+def register(cls: HandlerT) -> HandlerT:
+    REGISTRY[cls.language] = cls
+    return cls
+
+
+@register
 class PythonHandler(LanguageHandler):
     language = 'python'
+    extension = '.py'
+    gitignore_url = 'https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore'
+    source_template = "def main():\n    pass\n\n\nif __name__ == '__main__':\n    main()\n"
+    test_template = 'def test_main():\n    pass\n'
 
     def init_project(self) -> None:
         pyproject = self.dir / 'pyproject.toml'
-        if not pyproject.exists():
-            result = subprocess.run(
-                ['uv', 'init', '--no-readme', '--vcs', 'none', '--python', '3.11'], cwd=self.dir, capture_output=True
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f'uv init failed: {result.stderr.decode()}')
-            print(f'initialized uv project: {self.dir}')
+        if pyproject.exists():
+            print('pyproject.toml is already found at root')
+            return
+        result = subprocess.run(['uv', 'init', '--bare', '--python', '3.11'], cwd=self.dir, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(f'uv init failed: {result.stderr.decode()}')
+        print(f'initialized uv project: {self.dir}')
 
-            main_py = self.dir / 'main.py'
-            if main_py.exists():
-                main_py.unlink()
+        pyproject.write_text(pyproject.read_text() + '\n[tool.pytest.ini_options]\npython_files = "*.py"\n')
 
-            content = pyproject.read_text()
-            content += '\n[tool.pytest.ini_options]\npython_files = "*.py"\n'
-            pyproject.write_text(content)
-
-            result = subprocess.run(['uv', 'add', '--dev', 'pytest', 'ruff'], cwd=self.dir, capture_output=True)
-            if result.returncode != 0:
-                raise RuntimeError(f'uv add failed: {result.stderr.decode()}')
+        result = subprocess.run(['uv', 'add', '--dev', 'pytest', 'ruff', 'ty'], cwd=self.dir, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(f'uv add failed: {result.stderr.decode()}')
 
         gitignore = self.dir / '.gitignore'
         if not gitignore.exists():
-            download_gitignore('python', gitignore)
+            download_gitignore(self.language, gitignore)
 
-    def create(self, path: pathlib.Path) -> None:
+    def new(self, path: pathlib.Path) -> None:
         path.write_text(self.entry.source_template)
         print(f'created: {path}')
         if self.entry.test_template:
@@ -224,9 +197,6 @@ class NodeHandlerBase(LanguageHandler):
     def _add_dev_deps(self, *packages: str) -> None:
         result = subprocess.run(['pnpm', 'add', '-D', *packages], cwd=self.dir, capture_output=True)
         if result.returncode != 0 and b'ERR_PNPM_IGNORED_BUILDS' in result.stdout + result.stderr:
-            # pnpm >=10 blocks postinstall scripts (e.g. esbuild, used by tsx) behind an
-            # approval gate. approve everything non-interactively, then retry the add so
-            # `pnpm exec` doesn't get stuck re-running a blocked install every time.
             subprocess.run(['pnpm', 'approve-builds', '--all'], cwd=self.dir, capture_output=True)
             result = subprocess.run(['pnpm', 'add', '-D', *packages], cwd=self.dir, capture_output=True)
 
@@ -240,7 +210,7 @@ class NodeHandlerBase(LanguageHandler):
         data = json.loads(package_json.read_text())
         return package in data.get('dependencies', {}) or package in data.get('devDependencies', {})
 
-    def create(self, path: pathlib.Path) -> None:
+    def new(self, path: pathlib.Path) -> None:
         path.write_text(self.entry.source_template)
         print(f'created: {path}')
         if self.entry.test_template:
@@ -255,8 +225,16 @@ class NodeHandlerBase(LanguageHandler):
         return sh(['pnpm', 'exec', 'tsx', '--test', str(path)], cwd=self.dir)
 
 
+@register
 class JsHandler(NodeHandlerBase):
     language = 'js'
+    extension = '.js'
+    gitignore_url = 'https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore'
+    source_template = 'function main() {\n}\n\nmain();\n\nexport {};\n'
+    test_template = (
+        "import { test } from 'node:test';\nimport assert from 'node:assert';\n\n"
+        "test('example', () => {\n  assert.ok(true);\n});\n"
+    )
 
     def init_project(self) -> None:
         self._pnpm_init()
@@ -269,8 +247,16 @@ class JsHandler(NodeHandlerBase):
         return sh(['node', '--check', str(path)])
 
 
+@register
 class TsHandler(NodeHandlerBase):
     language = 'ts'
+    extension = '.ts'
+    gitignore_url = 'https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore'
+    source_template = 'function main(): void {\n}\n\nmain();\n\nexport {};\n'
+    test_template = (
+        "import { test } from 'node:test';\nimport assert from 'node:assert';\n\n"
+        "test('example', () => {\n  assert.ok(true);\n});\n"
+    )
 
     def init_project(self) -> None:
         self._pnpm_init()
@@ -303,15 +289,16 @@ class TsHandler(NodeHandlerBase):
             print(f'created: {tsconfig}')
 
     def check(self, path: pathlib.Path) -> subprocess.CompletedProcess:
-        # tsc refuses `tsc <file>` when a tsconfig.json is present in cwd (TS5112), and
-        # --ignoreConfig throws away the tsconfig's compilerOptions entirely. So `check`
-        # type-checks the whole flat ts/ dir via the tsconfig instead of just this file -
-        # every generated file is its own module (via `export {}`), so files don't collide.
         return sh(['pnpm', 'exec', 'tsc', '--noEmit', '-p', '.'], cwd=self.dir)
 
 
+@register
 class RustHandler(LanguageHandler):
     language = 'rust'
+    extension = '.rs'
+    gitignore_url = 'https://raw.githubusercontent.com/github/gitignore/main/Rust.gitignore'
+    source_template = 'fn main() {\n}\n'
+    test_template = '#[test]\nfn it_works() {\n    assert!(true);\n}\n'
 
     def init_project(self) -> None:
         cargo_toml = self.dir / 'Cargo.toml'
@@ -322,13 +309,13 @@ class RustHandler(LanguageHandler):
 
         gitignore = self.dir / '.gitignore'
         if not gitignore.exists():
-            download_gitignore('rust', gitignore)
+            download_gitignore(self.language, gitignore)
 
-    def create(self, path: pathlib.Path) -> None:
+    def new(self, path: pathlib.Path) -> None:
         content = self.entry.source_template
         if self.entry.test_template:
             test_body = '\n'.join(f'    {line}' if line else '' for line in self.entry.test_template.splitlines())
-            content = content.rstrip() + f'\n\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n{test_body}\n}}\n'
+            content = content.rstrip() + (f'\n\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n{test_body}\n}}\n')
         path.write_text(content)
         print(f'created: {path}')
         self._register_bin(path)
@@ -350,8 +337,13 @@ class RustHandler(LanguageHandler):
         return sh(['cargo', 'check', '--bin', path.stem], cwd=self.dir)
 
 
+@register
 class GoHandler(LanguageHandler):
     language = 'go'
+    extension = '.go'
+    gitignore_url = 'https://raw.githubusercontent.com/github/gitignore/main/Go.gitignore'
+    source_template = 'package main\n\nfunc main() {\n}\n'
+    test_template = 'package main\n\nimport "testing"\n\nfunc TestExample(t *testing.T) {\n}\n'
 
     def init_project(self) -> None:
         go_mod = self.dir / 'go.mod'
@@ -363,9 +355,9 @@ class GoHandler(LanguageHandler):
 
         gitignore = self.dir / '.gitignore'
         if not gitignore.exists():
-            download_gitignore('go', gitignore)
+            download_gitignore(self.language, gitignore)
 
-    def create(self, path: pathlib.Path) -> None:
+    def new(self, path: pathlib.Path) -> None:
         path.write_text(self.entry.source_template)
         print(f'created: {path}')
         if self.entry.test_template:
@@ -387,25 +379,17 @@ class GoHandler(LanguageHandler):
         return sh(['go', 'vet', path.name], cwd=self.dir)
 
 
-HANDLER_CLASSES: dict[str, type[LanguageHandler]] = {
-    'python': PythonHandler,
-    'js': JsHandler,
-    'ts': TsHandler,
-    'rust': RustHandler,
-    'go': GoHandler,
-}
-
-
 def build_handlers(config: Config) -> dict[str, LanguageHandler]:
     handlers = {}
     for lang, entry in config.languages.items():
-        handlers[lang] = HANDLER_CLASSES[lang](entry, config.dir_for(lang))
+        handlers[lang] = REGISTRY[lang](entry, config.dir_for(lang))
     return handlers
 
 
 def language_for_extension(config: Config, suffix: str) -> typing.Optional[str]:
     for lang in config.languages:
-        if EXTENSIONS[lang] == suffix:
+        handler_cls = REGISTRY.get(lang)
+        if handler_cls and handler_cls.extension == suffix:
             return lang
     return None
 
@@ -419,30 +403,30 @@ def resolve(config: Config, filename: str) -> tuple[str, pathlib.Path]:
 
     language = language_for_extension(config, p.suffix)
     if not language:
-        raise ValueError(f"no language configured for extension '{p.suffix}' in {CONFIG_FILENAME}")
+        raise ValueError(f"no language configured for extension '{p.suffix}' in {Config.FILENAME}")
 
     return language, config.dir_for(language) / p.name
 
 
 def require_config() -> Config:
-    config_path = pathlib.Path.cwd() / CONFIG_FILENAME
+    config_path = pathlib.Path.cwd() / Config.FILENAME
     if not config_path.exists():
-        print(f'error: no {CONFIG_FILENAME} found in the current directory.', file=sys.stderr)
+        print(f'error: no {Config.FILENAME} found in the current directory.', file=sys.stderr)
         print('run `px init` to create one.', file=sys.stderr)
         sys.exit(1)
     try:
         return Config.load(pathlib.Path.cwd())
     except (ValueError, json.JSONDecodeError) as e:
-        print(f'error: invalid {CONFIG_FILENAME}: {e}', file=sys.stderr)
+        print(f'error: invalid {Config.FILENAME}: {e}', file=sys.stderr)
         sys.exit(1)
 
 
 def cmd_init() -> int:
-    config_path = pathlib.Path.cwd() / CONFIG_FILENAME
+    config_path = pathlib.Path.cwd() / Config.FILENAME
     sample = Config.sample()
 
     if not config_path.exists():
-        print(f'no {CONFIG_FILENAME} found in {pathlib.Path.cwd()}')
+        print(f'no {Config.FILENAME} found in {pathlib.Path.cwd()}')
         print('sample config:')
         print(json.dumps(sample, indent=2))
         answer = input(f'create {config_path} with this sample? [y/N] ').strip().lower()
@@ -488,7 +472,7 @@ def cmd_new(filename: str) -> int:
     else:
         handler = build_handlers(config)[language]
         handler.dir.mkdir(parents=True, exist_ok=True)
-        handler.create(path)
+        handler.new(path)
 
     subprocess.run([config.editor, str(config.dir_for(language)), str(path)])
     return 0
@@ -513,16 +497,6 @@ def cmd_exec(filename: str, action: str) -> int:
         print(f'error: required tool not found: {e.filename}', file=sys.stderr)
         return 1
     return result.returncode
-
-
-def cmd_ls() -> int:
-    config = require_config()
-    print(config.root)
-    for lang, entry in config.languages.items():
-        directory = config.dir_for(lang)
-        if directory.exists():
-            print(directory)
-    return 0
 
 
 def cmd_open(language: typing.Optional[str]) -> int:
@@ -553,7 +527,6 @@ def main() -> None:
             '  run <file>    execute a file\n'
             '  test <file>   run tests for a file\n'
             '  check <file>  syntax/type check a file\n'
-            '  ls            list configured language directories\n'
             '  open [lang]   open the workspace or a language dir in the editor\n'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -574,8 +547,6 @@ def main() -> None:
     check_parser = subparsers.add_parser('check', help='syntax/type check a file')
     check_parser.add_argument('file')
 
-    subparsers.add_parser('ls', help='list configured language directories')
-
     open_parser = subparsers.add_parser('open', help='open workspace or language dir in editor')
     open_parser.add_argument('language', nargs='?', help='python, js, ts, rust, or go')
 
@@ -591,8 +562,6 @@ def main() -> None:
         code = cmd_exec(args.file, 'test')
     elif args.command == 'check':
         code = cmd_exec(args.file, 'check')
-    elif args.command == 'ls':
-        code = cmd_ls()
     elif args.command == 'open':
         code = cmd_open(args.language)
     else:
