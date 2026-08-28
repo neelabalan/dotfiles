@@ -146,11 +146,3 @@ code () {
 }
 
 pxcd() { cd "$(px ls | fzf)"; }
-
-# pnpm
-export PNPM_HOME="/Users/neelabalan/Library/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-esac
-# pnpm end
