@@ -5,6 +5,12 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     export PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
     export PATH=$HOME/.opencode/bin:$PATH
 
+    # pnpm
+    export PNPM_HOME="$HOME/Library/pnpm"
+    case ":$PATH:" in
+      *":$PNPM_HOME/bin:"*) ;;
+      *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+    esac
 
     # eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
