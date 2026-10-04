@@ -1,9 +1,8 @@
 """show note statistics (files, words, tags, size, dates)"""
+
 import datetime
 import pathlib
 import re
-
-
 
 
 class Plugin:
@@ -95,4 +94,5 @@ def run(ctx: dict) -> None:
 if __name__ == '__main__':
     import json
     import sys
+
     run(json.load(sys.stdin))

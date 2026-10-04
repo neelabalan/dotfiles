@@ -1,6 +1,7 @@
 """command manager - bookmark and fzf-pick shell commands (markdown is source of truth)"""
-import pathlib
+
 import dataclasses
+import pathlib
 import re
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ class CommandEntry:
     command: str
     tags: tuple[str, ...]
     description: str
+
 
 class Plugin:
     def __init__(self, ctx: dict):
@@ -79,20 +81,18 @@ class Plugin:
 
         return CommandEntry(command=command, description=description, tags=tags)
 
-
-
     def _split_blocks(self, text: str) -> list[str]:
         blocks = []
         current: list[str] = []
         for line in text.splitlines():
             if line.strip() == ENTRY_SEPARATOR:
                 if current:
-                    blocks.append("\n".join(current))
+                    blocks.append('\n'.join(current))
                 current = []
             else:
                 current.append(line)
         if current:
-            blocks.append("\n".join(current))
+            blocks.append('\n'.join(current))
         return blocks
 
     def parse_commands(self, text: str) -> list[CommandEntry]:
@@ -102,7 +102,6 @@ class Plugin:
             if entry is not None:
                 entries.append(entry)
         return entries
-
 
     def _new(self, command_file: pathlib.Path, args: dict) -> None:
         command_text = args.get('command_text') or input('command: ').strip()
@@ -155,7 +154,9 @@ class Plugin:
 def register(parser) -> None:
     subparsers = parser.add_subparsers(dest='cm_command')
 
-    new_parser = subparsers.add_parser('new', help='append a new command entry (opens a prompt unless --command is given)')
+    new_parser = subparsers.add_parser(
+        'new', help='append a new command entry (opens a prompt unless --command is given)'
+    )
     new_parser.add_argument('--command', dest='command_text')
     new_parser.add_argument('--tag', action='append', default=[])
     new_parser.add_argument('--description', default='')
@@ -172,4 +173,5 @@ def run(ctx: dict) -> None:
 if __name__ == '__main__':
     import json
     import sys
+
     run(json.load(sys.stdin))

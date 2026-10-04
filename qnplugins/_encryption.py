@@ -8,7 +8,6 @@ import tempfile
 import textwrap
 
 
-
 class AgeEncryption:
     @staticmethod
     def generate_keypair() -> tuple[str, str]:

@@ -3,6 +3,7 @@ import json
 import pathlib
 import subprocess
 
+
 def expand_path(path_str: str) -> pathlib.Path:
     if not path_str or '..' in path_str:
         raise ValueError(f'invalid path: {path_str}')

@@ -1,4 +1,5 @@
 """manage URLs in notes"""
+
 import concurrent.futures
 import datetime
 import html.parser
@@ -14,7 +15,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-
 
 
 class TitleExtractor(html.parser.HTMLParser):
@@ -34,7 +34,6 @@ class TitleExtractor(html.parser.HTMLParser):
     def handle_data(self, data):
         if self.in_title:
             self.title += data
-
 
 
 class LinkManager:
@@ -471,9 +470,12 @@ class Plugin:
         cmd = self.ctx['args'].get('url_command')
 
         match cmd:
-            case 'catalog': self.manager.catalog()
-            case 'audit': self.manager.audit()
-            case 'dupes': self.manager.check_duplicates()
+            case 'catalog':
+                self.manager.catalog()
+            case 'audit':
+                self.manager.audit()
+            case 'dupes':
+                self.manager.check_duplicates()
             case 'browse':
                 try:
                     port = int(config.get('browser_port', '8765'))
@@ -504,4 +506,5 @@ def run(ctx: dict) -> None:
 if __name__ == '__main__':
     import json
     import sys
+
     run(json.load(sys.stdin))

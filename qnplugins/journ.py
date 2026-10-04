@@ -1,4 +1,5 @@
 """daily, weekly and monthly notes"""
+
 import datetime
 import pathlib
 
@@ -79,4 +80,5 @@ def run(ctx: dict) -> None:
 if __name__ == '__main__':
     import json
     import sys
+
     run(json.load(sys.stdin))

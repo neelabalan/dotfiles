@@ -1,11 +1,13 @@
 """backup and restore notes (plain or encrypted)"""
+
 import pathlib
 import subprocess
 import tempfile
 
 from _encryption import AgeEncryption
 from _encryption import GPGEncryption
-from _utils import expand_path, save_config
+from _utils import expand_path
+from _utils import save_config
 
 
 class Plugin:
@@ -118,7 +120,9 @@ class Plugin:
 
     def _configure(self) -> None:
         config = dict(self.ctx['config'])
-        backup_dir = input(f"backup directory [{config.get('backup_dir', '~/notes_backups')}]: ").strip() or config.get('backup_dir', '~/notes_backups')
+        backup_dir = input(f'backup directory [{config.get("backup_dir", "~/notes_backups")}]: ').strip() or config.get(
+            'backup_dir', '~/notes_backups'
+        )
         encryption_tool = config.get('encryption_tool', 'age')
         value = input(f'encryption tool (age/gpg) [{encryption_tool}]: ').strip() or encryption_tool
         if value.lower() in ('age', 'gpg'):
@@ -159,13 +163,15 @@ class Plugin:
             else:
                 gpg_recipient = input('gpg recipient (leave empty for symmetric encryption): ').strip()
 
-        config.update({
-            'backup_dir': backup_dir,
-            'encryption_tool': encryption_tool,
-            'age_public_key': age_public_key,
-            'age_private_key': age_private_key,
-            'gpg_recipient': gpg_recipient,
-        })
+        config.update(
+            {
+                'backup_dir': backup_dir,
+                'encryption_tool': encryption_tool,
+                'age_public_key': age_public_key,
+                'age_private_key': age_private_key,
+                'gpg_recipient': gpg_recipient,
+            }
+        )
         save_config(self.ctx, config)
         print('backup config saved')
 
@@ -189,4 +195,5 @@ def run(ctx: dict) -> None:
 if __name__ == '__main__':
     import json
     import sys
+
     run(json.load(sys.stdin))
