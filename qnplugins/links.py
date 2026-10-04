@@ -1,3 +1,4 @@
+"""manage URLs in notes"""
 import concurrent.futures
 import datetime
 import html.parser
@@ -353,25 +354,6 @@ class LinkManager:
         else:
             print('no dead links found')
 
-    def list_tags(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT tag_name, link_count
-                FROM tags
-                ORDER BY link_count DESC, tag_name
-            """)
-            tags = cursor.fetchall()
-
-        if not tags:
-            print('no tags found. run "qn url catalog" first.')
-            return
-
-        print(f'TAGS ({len(tags)} total):\n')
-        for tag, count in tags:
-            print(f'#{tag:<20} {count:>4} links')
-
     def check_duplicates(self) -> None:
         print('scanning notes for duplicate links...')
 
@@ -402,44 +384,6 @@ class LinkManager:
             for file_path, line_num in sorted(locations):
                 print(f'  {file_path}:{line_num}')
             print()
-
-    def list_links(self, dead_only: bool = False, domain: typing.Optional[str] = None) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            query = 'SELECT url, title, status, status_code, domain FROM links WHERE 1=1'
-            params = []
-
-            if dead_only:
-                query += ' AND status = "dead"'
-
-            if domain:
-                query += ' AND domain = ?'
-                params.append(domain)
-
-            query += ' ORDER BY domain, url'
-
-            cursor.execute(query, params)
-            links = cursor.fetchall()
-
-        if not links:
-            print('no links found')
-            return
-
-        print(f'Links ({len(links)} found):\n')
-
-        current_domain = None
-        for url, title, status, status_code, link_domain in links:
-            if link_domain != current_domain:
-                if current_domain is not None:
-                    print()
-                print(f'[{link_domain}]')
-                current_domain = link_domain
-
-            status_display = f'[{status}]' if status == 'active' else f'[{status_code}]'
-            print(f'  {url} {status_display}')
-            if title:
-                print(f'    "{title}"')
 
     def browse_urls(self, port: int, bind_address: str = '127.0.0.1') -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -511,44 +455,53 @@ class LinkManager:
 
 
 class Plugin:
-    NAME = 'url'
-    HELP = 'manage URLs in notes'
+    def __init__(self, ctx: dict):
+        self.ctx = ctx
+        config = ctx['config']
 
-    def register(self, parser):
-        sub = parser.add_subparsers(dest='url_command', help='URL commands')
-        sub.add_parser('catalog', help='scan notes and build/update link index')
-        sub.add_parser('audit', help='check for dead links')
-        sub.add_parser('dupes', help='check for duplicate links')
-        sub.add_parser('browse', help='open web interface to browse URLs')
-
-    def run(self, args, ctx):
-        config = ctx.config
-        max_workers = 10
         try:
             max_workers = int(config.get('max_workers', '10'))
         except ValueError:
-           ...
+            max_workers = 10
 
-        db_path = ctx.util.expand_path(config.get('dbpath', '~/.dotfiles/.qn.db'))
-        manager = LinkManager(ctx.notes_dir, max_workers)
+        self.manager = LinkManager(pathlib.Path(ctx['notes_dir']), max_workers)
 
-        cmd = getattr(args, 'url_command', None)
+    def run(self) -> None:
+        config = self.ctx['config']
+        cmd = self.ctx['args'].get('url_command')
 
         match cmd:
-            case 'catalog': manager.catalog()
-            case 'audit': manager.audit()
-            case 'dupes': manager.check_duplicates()
+            case 'catalog': self.manager.catalog()
+            case 'audit': self.manager.audit()
+            case 'dupes': self.manager.check_duplicates()
             case 'browse':
-                port = 8765
                 try:
-                    port = int(config.get('browser_port'))
+                    port = int(config.get('browser_port', '8765'))
                 except ValueError:
-                    ...
+                    port = 8765
                 bind_address = config.get('bind_address', '127.0.0.1')
-                manager.browse_urls(port=port, bind_address=bind_address)
+                self.manager.browse_urls(port=port, bind_address=bind_address)
             case _:
-                print('usage: qn url {catalog,audit,dupes,tags,filter,browse}')
-                print('  catalog  - Scan notes and build/update link index')
-                print('  audit    - Check for dead links')
-                print('  dupes    - Check for duplicate links')
-                print('  browse   - Open web interface to browse URLs')
+                print('usage: qn links {catalog,audit,dupes,browse}')
+                print('  catalog  - scan notes and build/update link index')
+                print('  audit    - check for dead links')
+                print('  dupes    - check for duplicate links')
+                print('  browse   - open web interface to browse URLs')
+
+
+def register(parser) -> None:
+    sub = parser.add_subparsers(dest='url_command', help='URL commands')
+    sub.add_parser('catalog', help='scan notes and build/update link index')
+    sub.add_parser('audit', help='check for dead links')
+    sub.add_parser('dupes', help='check for duplicate links')
+    sub.add_parser('browse', help='open web interface to browse URLs')
+
+
+def run(ctx: dict) -> None:
+    Plugin(ctx).run()
+
+
+if __name__ == '__main__':
+    import json
+    import sys
+    run(json.load(sys.stdin))

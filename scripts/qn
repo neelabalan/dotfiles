@@ -10,196 +10,184 @@ import datetime
 import importlib.util
 import json
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
 import types
-import typing
 import uuid
-import tomllib
 
-RESTRICTED_DIRS = ('/', '/root', '/etc')
 CONFIG_PATH = pathlib.Path.home() / '.dotfiles' / '.qn.json'
 DEFAULT_CONFIG = {
     'notes_dir': '~/notes',
     'editor': 'vim',
-    # remove append note
-    'append_note': 'inbox.md'
 }
 
 
-
-
-def get_config_path() -> pathlib.Path:
-    return pathlib.Path.home() / '.dotfiles' / '.qn.json'
-
-
-def get_default_config() -> dict[str, str]:
-    return {
-        'notes_dir': '~/notes',
-        'backup_dir': '~/notes_backups',
-        'editor': 'code',
-        'encryption_tool': 'age',
-        'append_note': 'inbox.md',
-        'age_public_key': '',
-        'age_private_key': '',
-        'gpg_recipient': '',
-        'gpg_private_key': '',
-        'max_workers': '10',
-        'browser_port': '8765',
-        'bind_address': '127.0.0.1',
-    }
-
-
 def load_config() -> dict[str, str]:
-    config_path = get_config_path()
-    if not config_path.exists():
-        return get_default_config()
+    if not CONFIG_PATH.exists():
+        return dict(DEFAULT_CONFIG)
 
     try:
-        with open(config_path) as f:
+        with open(CONFIG_PATH) as f:
             config = json.load(f)
-        return {**get_default_config(), **config}
-    except (json.JSONDecodeError, OSError):
-        return get_default_config()
+        return {**DEFAULT_CONFIG, **config}
+    except (json.JSONDecodeError, OSError) as ex:
+        print(f'> {ex}')
+        return dict(DEFAULT_CONFIG)
 
 
-def save_config(config: dict[str, str]) -> None:
-    if not validate_config_paths(config):
-        print('invalid configuration paths')
-        sys.exit(1)
-    config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
+class Util:
+    def save_config(self, config: dict[str, str]) -> None:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    config_path.chmod(0o600)
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=4)
+        CONFIG_PATH.chmod(0o600)
 
+    def expand_path(self, path_str: str) -> pathlib.Path:
+        if not path_str or '..' in path_str:
+            raise ValueError(f'invalid path: {path_str}')
+        return pathlib.Path(path_str).expanduser().resolve()
 
-def expand_path(path_str: str) -> pathlib.Path:
-    if not path_str or '..' in path_str:
-        raise ValueError(f'invalid path: {path_str}')
-    return pathlib.Path(path_str).expanduser().resolve()
+    def get_notes_dir(self) -> pathlib.Path:
+        notes_dir = self.expand_path(load_config()['notes_dir'])
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        return notes_dir
 
+    def open_in_editor(self, file_path: pathlib.Path, also_open_directory: bool = False) -> None:
+        config = load_config()
+        editor = config['editor']
+        if not editor or ';' in editor or '&' in editor or '|' in editor or '$(' in editor or '`' in editor:
+            print(f'invalid editor command: {editor}')
+            sys.exit(1)
 
-def validate_config_paths(config: dict[str, str]) -> bool:
-    try:
-        notes_dir = expand_path(config['notes_dir'])
-        backup_dir = expand_path(config['backup_dir'])
-        if str(notes_dir) in ['/', '/root', '/etc'] or str(backup_dir) in ['/', '/root', '/etc']:
-            print('refusing to use system directories for notes/backup')
-            return False
-        return True
-    except (ValueError, OSError):
-        return False
+        if also_open_directory:
+            notes_dir = self.get_notes_dir()
+            try:
+                subprocess.run([editor, str(notes_dir), str(file_path)], check=True)
+                return
+            except subprocess.CalledProcessError:
+                pass
+            except FileNotFoundError:
+                print(f"editor '{editor}' not found")
+                sys.exit(1)
 
-
-def get_notes_dir() -> pathlib.Path:
-    config = load_config()
-    notes_dir = expand_path(config['notes_dir'])
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    return notes_dir
-
-
-def open_in_editor(file_path: pathlib.Path, also_open_directory: bool = False) -> None:
-    config = load_config()
-    editor = config['editor']
-    if not editor or ';' in editor or '&' in editor or '|' in editor or '$(' in editor or '`' in editor:
-        print(f'invalid editor command: {editor}')
-        sys.exit(1)
-
-    if also_open_directory:
-        notes_dir = get_notes_dir()
         try:
-            subprocess.run([editor, str(notes_dir), str(file_path)], check=True)
-            return
+            subprocess.run([editor, str(file_path)], check=True)
         except subprocess.CalledProcessError:
-            pass
+            print(f'failed to open {file_path} with {editor}')
+            sys.exit(1)
         except FileNotFoundError:
             print(f"editor '{editor}' not found")
             sys.exit(1)
 
+
+util = Util()
+
+
+def prompt_config_value(prompt_text: str, default_value: str) -> str:
+    user_input = input(f'{prompt_text} [{default_value}]: ').strip()
+    return user_input if user_input else default_value
+
+def initialize_config() -> None:
+    if CONFIG_PATH.exists():
+        response = input(f'config file already exists at {CONFIG_PATH}. overwrite? (y/N): ')
+        if response.lower() != 'y':
+            return
+    print('intializing quick notes configuration...')
+    print('press ENTER to use default value show in brackets')
+
+    notes_dir = prompt_config_value('notes directory', DEFAULT_CONFIG['notes_dir'])
+    editor = prompt_config_value('editor', DEFAULT_CONFIG['editor'])
+
+    util.save_config({'notes_dir': notes_dir, 'editor': editor})
+    print(f'\nconfig saved at {CONFIG_PATH}')
+
+    notes_dir_path = util.expand_path(notes_dir).mkdir(parents=True, exist_ok=True)
+    print(f'notes directory created at {notes_dir_path}')
+
+def get_plugins_dir() -> pathlib.Path:
+    return util.expand_path(load_config().get('plugins_dir', '~/.dotfiles/qnplugins'))
+
+
+def _import_plugin(plugin_file: pathlib.Path) -> types.ModuleType:
+    plugins_dir = str(get_plugins_dir())
+    if plugins_dir not in sys.path:
+        sys.path.insert(0, plugins_dir)
+
+    spec = importlib.util.spec_from_file_location(f'qn_plugin_{plugin_file.stem}', plugin_file)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_plugins() -> list[dict]:
+    """
+    discover plugins: every plugin is a single .py file in qnplugins/ exposing `register(parser)`
+    and `run(ctx)`. files starting with "_" are shared helper modules, not plugins.
+
+    qn imports each plugin in-process just to call register() and build its real argparse tree
+    (plugins stay stdlib-only at import time, so this is cheap and safe). The actual work always
+    runs isolated via `uv run --script` (uv resolves/caches an environment per dependency set),
+    which gets a plain ctx dict piped in as JSON on stdin: {config, config_path, notes_dir,
+    plugins_dir, args}.
+    """
+    plugins_dir = get_plugins_dir()
+    if not plugins_dir.is_dir():
+        return []
+
+    plugins = []
+    for plugin_file in sorted(plugins_dir.glob('*.py')):
+        if plugin_file.name.startswith('_'):
+            continue
+        module = _import_plugin(plugin_file)
+        help_text = (module.__doc__ or '').strip().splitlines()[0] if module.__doc__ else f'{plugin_file.stem} plugin'
+        plugins.append({'name': plugin_file.stem, 'help': help_text, 'file': plugin_file, 'module': module})
+    return plugins
+
+
+def run_plugin(plugin: dict, args: dict) -> int:
+    if shutil.which('uv') is None:
+        print(f'error: plugin "{plugin["name"]}" requires uv but uv is not installed')
+        return 1
+
+    ctx = {
+        'config': load_config(),
+        'config_path': str(CONFIG_PATH),
+        'notes_dir': str(util.get_notes_dir()),
+        'plugins_dir': str(get_plugins_dir()),
+        'args': args,
+    }
     try:
-        subprocess.run([editor, str(file_path)], check=True)
-    except subprocess.CalledProcessError:
-        print(f'failed to open {file_path} with {editor}')
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"editor '{editor}' not found")
-        sys.exit(1)
+        proc = subprocess.run(
+            ['uv', 'run', '--quiet', '--script', str(plugin['file'])],
+            input=json.dumps(ctx),
+            text=True,
+        )
+    except OSError as ex:
+        print(f'failed to run plugin "{plugin["name"]}": {ex}')
+        return 1
+    return proc.returncode
 
 
 def create_note() -> None:
-    notes_dir = get_notes_dir()
+    notes_dir = util.get_notes_dir()
     hex_id = uuid.uuid4().hex[:8]
     note_path = notes_dir / f'{hex_id}.md'
 
     note_path.touch()
-    open_in_editor(note_path, also_open_directory=True)
-
-
-def create_daily_note() -> None:
-    notes_dir = get_notes_dir()
-    today = datetime.date.today()
-    daily_path = notes_dir / 'daily' / f'{today.strftime("%Y%m%d")}.md'
-
-    daily_path.parent.mkdir(parents=True, exist_ok=True)
-    daily_path.touch()
-
-    open_in_editor(daily_path, also_open_directory=True)
-
-
-def create_weekly_note(week_offset: int = 0) -> None:
-    notes_dir = get_notes_dir()
-    today = datetime.date.today()
-    target_date = today + datetime.timedelta(weeks=week_offset)
-    week_start = target_date - datetime.timedelta(days=target_date.weekday())
-    week_end = week_start + datetime.timedelta(days=6)
-
-    weekly_dir = notes_dir / 'weekly'
-    weekly_dir.mkdir(parents=True, exist_ok=True)
-
-    weekly_filename = f'{week_start.strftime("%Y%m%d")}-{week_end.strftime("%Y%m%d")}.md'
-    weekly_path = weekly_dir / weekly_filename
-
-    weekly_path.touch()
-    open_in_editor(weekly_path, also_open_directory=True)
-
-
-def create_monthly_note() -> None:
-    notes_dir = get_notes_dir()
-    today = datetime.date.today()
-    monthly_path = notes_dir / 'monthly' / f'{today.strftime("%Y%m")}.md'
-
-    monthly_path.parent.mkdir(parents=True, exist_ok=True)
-    monthly_path.touch()
-
-    open_in_editor(monthly_path, also_open_directory=True)
+    util.open_in_editor(note_path, also_open_directory=True)
 
 
 def open_notes_directory() -> None:
-    notes_dir = get_notes_dir()
-    open_in_editor(notes_dir)
-
-
-
-def decrypt_backup(output_dir: typing.Optional[str] = None) -> None:
-    config = load_config()
-
-
-def prompt_config_value(prompt_text: str, default_value: str, validator=None) -> str:
-    while True:
-        user_input = input(f'{prompt_text} [{default_value}]: ').strip()
-        value = user_input if user_input else default_value
-        if validator and not validator(value):
-            continue
-        return value
+    notes_dir = util.get_notes_dir()
+    util.open_in_editor(notes_dir)
 
 
 def append_to_note(text: str) -> None:
     config = load_config()
-    notes_dir = get_notes_dir()
+    notes_dir = util.get_notes_dir()
     append_file = notes_dir / config['append_note']
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     entry = f'\n### {timestamp}\n\n{text}\n\n'
@@ -211,86 +199,8 @@ def append_to_note(text: str) -> None:
     print(f'appended to {append_file}')
 
 
-def count_words_in_file(file_path: pathlib.Path) -> int:
-    try:
-        content = file_path.read_text(encoding='utf-8', errors='ignore')
-        words = re.findall(r'\b\w+\b', content)
-        return len(words)
-    except OSError:
-        return 0
-
-
-def extract_tags_from_file(file_path: pathlib.Path) -> set[str]:
-    try:
-        content = file_path.read_text(encoding='utf-8', errors='ignore')
-        tags = set(re.findall(r'#(\w+)', content))
-        return tags
-    except OSError:
-        return set()
-
-
-def get_file_creation_date(file_path: pathlib.Path) -> datetime.datetime:
-    try:
-        stat = file_path.stat()
-        # st_birthtime is actual creation time on macOS; fall back to st_mtime on Linux
-        ctime = getattr(stat, 'st_birthtime', None) or stat.st_mtime
-        return datetime.datetime.fromtimestamp(ctime)
-    except OSError:
-        return datetime.datetime.min
-
-
-def show_statistics() -> None:
-    notes_dir = get_notes_dir()
-
-    if not notes_dir.exists():
-        print('notes directory does not exist')
-        return
-
-    markdown_files = list(notes_dir.rglob('*.md'))
-
-    if not markdown_files:
-        print('no markdown files found')
-        return
-
-    total_words = 0
-    all_tags: set[str] = set()
-    total_size = 0
-    creation_dates: list[datetime.datetime] = []
-
-    for file_path in markdown_files:
-        total_words += count_words_in_file(file_path)
-        all_tags.update(extract_tags_from_file(file_path))
-        try:
-            total_size += file_path.stat().st_size
-        except OSError:
-            pass
-
-        creation_dates.append(get_file_creation_date(file_path))
-
-    creation_dates.sort()
-    earliest = creation_dates[0] if creation_dates else datetime.datetime.min
-    latest = creation_dates[-1] if creation_dates else datetime.datetime.min
-    size_mb = total_size / (1024 * 1024)
-
-    print('notes statistics:')
-    print(f'  total files: {len(markdown_files)}')
-    print(f'  total words: {total_words:,}')
-    print(f'  unique tags: {len(all_tags)}')
-    print(f'  total size: {size_mb:.2f} MB')
-
-    if earliest != datetime.datetime.min:
-        print(f'  Earliest note: {earliest.strftime("%Y-%m-%d")}')
-        print(f'  Latest note: {latest.strftime("%Y-%m-%d")}')
-    if all_tags:
-        sorted_tags = sorted(all_tags)
-        if len(sorted_tags) <= 10:
-            print(f'  Tags: {", ".join(sorted_tags)}')
-        else:
-            print(f'  Top tags: {", ".join(sorted_tags[:10])}...')
-
-
 def prune_empty_files() -> None:
-    notes_dir = get_notes_dir()
+    notes_dir = util.get_notes_dir()
     if not notes_dir.exists():
         print('notes directory does not exist')
         return
@@ -323,78 +233,34 @@ def prune_empty_files() -> None:
     print(f'successfully removed {removed_count} empty file(s)')
 
 
-def print_all_tags() -> None:
-    notes_dir = get_notes_dir()
-    markdown_files = list(notes_dir.rglob('*.md'))
-    all_tags = set()
-    for file_path in markdown_files:
-        all_tags.update(extract_tags_from_file(file_path))
-    if all_tags:
-        print('unique tags:')
-        print('\n'.join(sorted(all_tags, key=str.lower)))
-    else:
-        print('no tags found.')
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description='Quick Notes CLI')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    subparsers.add_parser('daily', help='Create/open daily note')
-
-    weekly_parser = subparsers.add_parser('weekly', help='Create/open weekly notes')
-    weekly_subparsers = weekly_parser.add_subparsers(dest='weekly_command', help='Weekly commands')
-    weekly_subparsers.add_parser('current', aliases=['c'], help='Create/open current week note')
-    weekly_subparsers.add_parser('previous', aliases=['p'], help='Create/open previous week note')
-    weekly_subparsers.add_parser('next', aliases=['n'], help='Create/open next week note')
-
-    subparsers.add_parser('monthly', help='Create/open monthly note')
     subparsers.add_parser('open', aliases=['o'], help='Open notes directory')
     subparsers.add_parser('init', help='Initialize configuration')
-    subparsers.add_parser('stats', help='Show note statistics')
-    subparsers.add_parser('tags', help='Print all unique tags in notes')
-
-    backup_parser = subparsers.add_parser('backup', help='Backup notes')
-    backup_parser.add_argument('--encrypt', action='store_true', help='Encrypt backup')
-
-    decrypt_parser = subparsers.add_parser('decrypt', help='Decrypt backup')
-    decrypt_parser.add_argument('--output-dir', help='Output directory for decrypted files (default: backup directory)')
 
     subparsers.add_parser('prune', help='Remove empty note files')
 
     append_parser = subparsers.add_parser('append', aliases=['a'], help='Append text to note')
     append_parser.add_argument('text', nargs='+', help='Text to append')
 
-    url_parser = subparsers.add_parser('url', help='Manage URLs in notes')
-    url_subparsers = url_parser.add_subparsers(dest='url_command', help='URL commands')
-
-    url_subparsers.add_parser('catalog', help='Scan notes and build/update link index')
-    url_subparsers.add_parser('audit', help='Check for dead links')
-    url_subparsers.add_parser('dupes', help='Check for duplicate links')
-    url_subparsers.add_parser('browse', help='Open web interface to browse URLs')
+    plugins = load_plugins()
+    plugin_map = {}
+    for plugin in plugins:
+        plugin_subparser = subparsers.add_parser(plugin['name'], help=plugin['help'])
+        plugin['module'].register(plugin_subparser)
+        plugin_map[plugin['name']] = plugin
 
     args = parser.parse_args()
 
-    if args.command == 'daily':
-        create_daily_note()
-    elif args.command == 'weekly':
-        if args.weekly_command in ['previous', 'p']:
-            create_weekly_note(week_offset=-1)
-        elif args.weekly_command in ['next', 'n']:
-            create_weekly_note(week_offset=1)
-        elif args.weekly_command in ['current', 'c']:
-            create_weekly_note(week_offset=0)
-        else:
-            # Default behavior when no subcommand is provided
-            create_weekly_note()
-    elif args.command == 'monthly':
-        create_monthly_note()
+    plugin = plugin_map.get(args.command)
+    if plugin:
+        parsed_args = vars(args)
+        parsed_args.pop('command', None)
+        sys.exit(run_plugin(plugin, parsed_args))
     elif args.command in ['open', 'o']:
         open_notes_directory()
-    elif args.command == 'backup':
-        backup_notes(args.encrypt)
-    elif args.command == 'decrypt':
-        decrypt_backup(args.output_dir)
     elif args.command == 'prune':
         prune_empty_files()
     elif args.command == 'init':
@@ -402,10 +268,6 @@ def main() -> None:
     elif args.command in ['append', 'a']:
         text = ' '.join(args.text)
         append_to_note(text)
-    elif args.command == 'stats':
-        show_statistics()
-    elif args.command == 'tags':
-        print_all_tags()
     else:
         create_note()
 
