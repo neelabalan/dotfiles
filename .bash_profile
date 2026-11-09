@@ -15,7 +15,13 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-export PATH="$PATH:$HOME/.dotfiles/scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin:$HOME/code/tools/qn"
+TOOLS_DIR="$HOME/code/neelabalan/tools"
+for tool in qn gb px dnv pynb cleanup vivaldi_export; do
+    [ -d "$TOOLS_DIR/$tool" ] && PATH="$PATH:$TOOLS_DIR/$tool"
+done
+[ -d "$TOOLS_DIR/sysprobe/target/release" ] && PATH="$PATH:$TOOLS_DIR/sysprobe/target/release"
+
+export PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
 
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export CHEATCOLORS=true
