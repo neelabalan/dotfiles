@@ -15,7 +15,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-export PATH="$PATH:$HOME/.dotfiles/scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin"
+export PATH="$PATH:$HOME/.dotfiles/scripts:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:/usr/local/go/bin:$HOME/code/tools/qn"
 
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export CHEATCOLORS=true
